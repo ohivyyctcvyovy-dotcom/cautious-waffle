@@ -1,0 +1,9 @@
+{
+  "name": "MapaForge RPG",
+  "short_name": "MapaForge",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#11131a",
+  "theme_color": "#171923",
+  "description": "Editor de mapas 2D de RPG em pixel art para Android."
+}
