@@ -17,16 +17,16 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Instalar Gradle
+        uses: gradle/actions/setup-gradle@v4
       - name: Descompactar projeto
         run: |
           test -f 455-Android-Studio.zip
           mkdir -p source
           unzip -o 455-Android-Studio.zip -d source
-          find source -name gradlew -type f -exec chmod +x {} \;
       - name: Compilar APK
         run: |
           cd source/TelaLeitor
-          gradle --version
           gradle assembleDebug
       - name: Publicar APK
         uses: actions/upload-artifact@v4
