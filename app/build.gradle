@@ -8,11 +8,11 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'com.leitordetela.app.v2'
+        applicationId 'com.leitordetela.app.v3'
         minSdk 30
         targetSdk 35
-        versionCode 3
-        versionName '1.0.3'
+        versionCode 1
+        versionName '1.0.0'
 
         // O aparelho de destino usa processador ARM de 64 bits.
         // Evita empacotar bibliotecas de x86 e ARM de 32 bits no APK.
