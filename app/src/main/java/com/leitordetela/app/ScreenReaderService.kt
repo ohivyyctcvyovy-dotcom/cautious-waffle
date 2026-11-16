@@ -74,11 +74,7 @@ class ScreenReaderService : AccessibilityService(), TextToSpeech.OnInitListener 
             removePanel()
             capture { showSelector(it) }
         })
-        box.addView(action("Ler tela inteira") {
-            removePanel()
-            capture { readImage(it) }
-        })
-        box.addView(action("Fechar") { removePanel() })
+box.addView(action("Fechar") { removePanel() })
         val p = WindowManager.LayoutParams(
             270, -2, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
@@ -137,7 +133,7 @@ class ScreenReaderService : AccessibilityService(), TextToSpeech.OnInitListener 
             setPadding(8, 8, 8, 8)
             setBackgroundColor(Color.rgb(25, 23, 43))
         }
-        controls.addView(action("Ler seleção") {
+        controls.addView(action("Traduzir") {
             val r = frame.rect()
             closeSelector()
             val l = r.left.toInt().coerceIn(0, bitmap.width - 1)
@@ -230,7 +226,7 @@ class ScreenReaderService : AccessibilityService(), TextToSpeech.OnInitListener 
             .addOnSuccessListener { result ->
                 recognizer.close()
                 if (result.text.isBlank()) sayToast("Não encontrei texto. Ajuste a moldura e tente novamente.")
-                else translateAndSpeak(result.text, code)
+                else translateText(result.text, code)
             }
             .addOnFailureListener { error ->
                 recognizer.close()
@@ -255,14 +251,14 @@ class ScreenReaderService : AccessibilityService(), TextToSpeech.OnInitListener 
                 val text = api.getUTF8Text() ?: ""
                 api.end()
                 if (text.isBlank()) sayToast("Não encontrei texto tailandês legível.")
-                else translateAndSpeak(text, "th")
+                else translateText(text, "th")
             } catch (e: Exception) {
                 sayToast("Erro no OCR tailandês: " + e.localizedMessage)
             }
         }.start()
     }
 
-    private fun translateAndSpeak(text: String, code: String) {
+    private fun translateText(text: String, code: String) {
         val source = TranslateLanguage.fromLanguageTag(code)
         if (source == null) {
             sayToast("Idioma de origem não disponível.")
@@ -278,13 +274,52 @@ class ScreenReaderService : AccessibilityService(), TextToSpeech.OnInitListener 
                 val clean = translated.replace(Regex("[.。．…—–‐‑‒−-]+"), " ")
                     .replace(Regex("\\s+"), " ").trim()
                 if (clean.isBlank()) sayToast("A tradução ficou vazia.")
-                else tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "455-voice")
-                    ?: sayToast("A voz do aparelho ainda está iniciando.")
+                else showTranslation(clean)
             }
             .addOnFailureListener { e ->
                 translator.close()
                 sayToast("Falha na tradução local: " + e.localizedMessage)
             }
+    }
+
+
+    private fun showTranslation(translated: String) {
+        removePanel()
+        closeSelector()
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(20, 18, 20, 18)
+            setBackgroundColor(Color.rgb(30, 27, 53))
+        }
+        content.addView(TextView(this).apply {
+            text = "Tradução"
+            textSize = 22f
+            setTextColor(Color.rgb(195, 187, 255))
+            setPadding(0, 0, 0, 12)
+        })
+        content.addView(ScrollView(this).apply {
+            addView(TextView(this@ScreenReaderService).apply {
+                text = translated
+                textSize = 18f
+                setTextColor(Color.WHITE)
+                setTextIsSelectable(true)
+                setPadding(0, 8, 0, 16)
+            })
+        }, LinearLayout.LayoutParams(-1, 0, 1f))
+        content.addView(action("Ouvir tradução") {
+            val result = tts?.speak(translated, TextToSpeech.QUEUE_FLUSH, null, "455-voice")
+            if (result != TextToSpeech.SUCCESS) sayToast("A voz do aparelho ainda está iniciando.")
+        })
+        content.addView(action("Fechar tradução") { removePanel() })
+        val params = WindowManager.LayoutParams(
+            (resources.displayMetrics.widthPixels * 0.90f).toInt(),
+            (resources.displayMetrics.heightPixels * 0.65f).toInt(),
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.CENTER }
+        wm.addView(content, params)
+        panel = content
     }
 
     private fun sayToast(text: String) {
