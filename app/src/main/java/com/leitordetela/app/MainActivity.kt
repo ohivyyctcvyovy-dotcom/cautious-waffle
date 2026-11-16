@@ -48,7 +48,7 @@ class MainActivity : Activity() {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         })
         page.addView(label("3. Como usar", 18f, true))
-        page.addView(label("Toque no botão 455 sobre outros aplicativos. Escolha Selecionar área ou Ler tela inteira. Na seleção, arraste a moldura para mover e use o canto inferior direito para redimensionar. Depois toque em Ler seleção. Nada começa sozinho.", 14f, false))
+        page.addView(label("Toque no botão 455 sobre o aplicativo que deseja ler. Marque a região da tela, arraste a moldura para mover e use o canto inferior direito para redimensionar. Toque em Traduzir. Na tradução, use Fechar para sair ou Ouvir para escutar.", 14f, false))
         status = label("Os modelos ficam no aparelho. O texto da tela não é enviado.", 14f, false)
         page.addView(status)
         page.addView(button("Ver idiomas instalados") {
