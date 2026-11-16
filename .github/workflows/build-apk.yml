@@ -41,6 +41,10 @@ jobs:
           APK="app/build/outputs/apk/debug/app-debug.apk"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -v 4 "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee /tmp/455-badging.txt
+          grep -q "package: name='com.leitordetela.app.v3' versionCode='1'" /tmp/455-badging.txt
+          grep -q "launchable-activity: name='com.leitordetela.app.MainActivity'" /tmp/455-badging.txt
+          grep -q "sdkVersion:'30'" /tmp/455-badging.txt
           ls -lh "$APK"
 
       - name: Upload APK
