@@ -8,7 +8,7 @@ import android.view.*
 import android.widget.*
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.LatinTextRecognizerOptions
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
@@ -224,7 +224,7 @@ class ScreenReaderService : AccessibilityService(), TextToSpeech.OnInitListener 
             "ja" -> TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
             "ko" -> TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
             "hi" -> TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
-            else -> TextRecognition.getClient(LatinTextRecognizerOptions.DEFAULT_OPTIONS)
+            else -> TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         }
         recognizer.process(InputImage.fromBitmap(bitmap, 0))
             .addOnSuccessListener { result ->
