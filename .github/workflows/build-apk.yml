@@ -36,21 +36,23 @@ jobs:
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
 
-      - name: Verify APK signature and alignment
+      - name: Verify APK signature, alignment, package and supported ABIs
         run: |
           APK="app/build/outputs/apk/debug/app-debug.apk"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -v 4 "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee /tmp/455-badging.txt
-          grep -q "package: name='com.leitordetela.app.v3' versionCode='1'" /tmp/455-badging.txt
+          grep -q "package: name='com.leitordetela.app.v3' versionCode='2' versionName='1.0.1'" /tmp/455-badging.txt
           grep -q "launchable-activity: name='com.leitordetela.app.MainActivity'" /tmp/455-badging.txt
           grep -q "sdkVersion:'30'" /tmp/455-badging.txt
+          unzip -Z1 "$APK" | grep -q '^lib/arm64-v8a/'
+          unzip -Z1 "$APK" | grep -q '^lib/armeabi-v7a/'
           ls -lh "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: 455-apk-arm64-v1.0.3
+          name: 455-apk-universal-arm-v1.0.1
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
