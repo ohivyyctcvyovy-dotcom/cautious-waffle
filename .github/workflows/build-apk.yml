@@ -3,34 +3,36 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - '455-Android-Studio.zip'
+      - 'app/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
       - '.github/workflows/build-apk.yml'
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Baixar projeto
+      - name: Checkout
         uses: actions/checkout@v4
-      - name: Preparar Java
+      - name: Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - name: Instalar Gradle
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
-      - name: Descompactar projeto
-        run: |
-          test -f 455-Android-Studio.zip
-          mkdir -p source
-          unzip -o 455-Android-Studio.zip -d source
-      - name: Compilar APK
-        run: |
-          cd source/TelaLeitor
-          gradle assembleDebug
-      - name: Publicar APK
+        with:
+          gradle-version: '8.9'
+      - name: Install Android 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Build debug APK
+        run: gradle --no-daemon assembleDebug
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: 455-apk
-          path: source/TelaLeitor/app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 30
