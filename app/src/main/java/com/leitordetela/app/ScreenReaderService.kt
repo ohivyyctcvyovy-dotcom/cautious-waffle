@@ -109,7 +109,11 @@ class ScreenReaderService : AccessibilityService(), TextToSpeech.OnInitListener 
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(10, 10, 10, 10)
-            setBackgroundColor(Color.rgb(30, 27, 53))
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(28, 27, 48))
+                cornerRadius = 28f
+                setStroke(1, Color.rgb(91, 82, 145))
+            }
         }
         box.addView(action("Selecionar área") {
             removePanel()
@@ -128,6 +132,13 @@ box.addView(action("Fechar") { removePanel() })
     private fun action(label: String, run: () -> Unit) = Button(this).apply {
         text = label
         isAllCaps = false
+        textSize = 14f
+        setTextColor(Color.WHITE)
+        background = GradientDrawable().apply {
+            setColor(Color.rgb(91, 77, 190))
+            cornerRadius = 22f
+        }
+        setPadding(14, 8, 14, 8)
         setOnClickListener { run() }
     }
 
@@ -341,7 +352,11 @@ box.addView(action("Fechar") { removePanel() })
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(20, 18, 20, 18)
-            setBackgroundColor(Color.rgb(30, 27, 53))
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(28, 27, 48))
+                cornerRadius = 30f
+                setStroke(1, Color.rgb(91, 82, 145))
+            }
         }
         content.addView(TextView(this).apply {
             text = "Tradução"
