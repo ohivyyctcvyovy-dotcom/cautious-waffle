@@ -206,10 +206,10 @@ class MainActivity : Activity() {
         )
         translator.downloadModelIfNeeded(DownloadConditions.Builder().build())
             .addOnSuccessListener {
-                prefs.edit().putBoolean("installed_${lang.code}", true).apply()
                 translator.close()
                 if (lang.code == "th") downloadThaiModel()
                 else {
+                    prefs.edit().putBoolean("installed_${lang.code}", true).apply()
                     status.text = "Pacote de ${lang.name} instalado. A tradução será processada localmente."
                     installButton.isEnabled = true
                     updateInstallButton()
@@ -233,7 +233,8 @@ class MainActivity : Activity() {
                 connection.readTimeout = 60000
                 connection.inputStream.use { input -> target.outputStream().use { input.copyTo(it) } }
                 connection.disconnect()
-                prefs.edit().putBoolean("thai_ocr_installed", true).apply()
+                prefs.edit().putBoolean("thai_ocr_installed", true)
+                    .putBoolean("installed_th", true).apply()
                 runOnUiThread {
                     status.text = "Pacote tailandês instalado no aparelho."
                     installButton.isEnabled = true
