@@ -2,6 +2,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:allowBackup="false"
+        android:icon="@drawable/ic_455_launcher"
         android:label="455 — Leitor de Tela"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
