@@ -49,7 +49,7 @@ class MainActivity : Activity() {
         })
         page.addView(label("3. Como usar", 18f, true))
         page.addView(label("Toque no botão 455 sobre o aplicativo que deseja ler. Marque a região da tela, arraste a moldura para mover e use o canto inferior direito para redimensionar. Toque em Traduzir. Na tradução, use Fechar para sair ou Ouvir para escutar.", 14f, false))
-        status = label("Os modelos ficam no aparelho. O texto da tela não é enviado.", 14f, false)
+        status = label("A captura só acontece quando você toca em Selecionar área. O OCR e a tradução são processados no aparelho. A internet é usada para baixar modelos. A voz depende do mecanismo de voz do Android.", 14f, false)
         page.addView(status)
         page.addView(button("Ver idiomas instalados") {
             val done = langs.filter { prefs.getBoolean("installed_${it.code}", false) }.joinToString("\\n") { "✓ ${it.name}" }
