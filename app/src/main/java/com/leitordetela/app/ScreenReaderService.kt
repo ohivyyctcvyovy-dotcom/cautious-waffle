@@ -2,6 +2,7 @@ package com.leitordetela.app
 
 import android.accessibilityservice.AccessibilityService
 import android.graphics.*
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.speech.tts.TextToSpeech
 import android.view.*
@@ -45,20 +46,60 @@ class ScreenReaderService : AccessibilityService(), TextToSpeech.OnInitListener 
     override fun onInterrupt() = Unit
 
     private fun createBubble() {
-        val b = TextView(this).apply {
-            text = "455"
-            textSize = 18f
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.rgb(89, 75, 190))
-            elevation = 12f
-            setOnClickListener { showPanel() }
-        }
         val p = WindowManager.LayoutParams(
-            128, 128, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            58, 58, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.END; x = 20; y = 250 }
+        ).apply { gravity = Gravity.TOP or Gravity.END; x = 18; y = 250 }
+        val b = TextView(this).apply {
+            text = "455"
+            textSize = 16f
+            typeface = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL)
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(160, 130, 255), Color.rgb(83, 66, 190))
+            ).apply {
+                shape = GradientDrawable.OVAL
+                setStroke(2, Color.argb(170, 255, 255, 255))
+            }
+            elevation = 14f
+            setShadowLayer(5f, 0f, 3f, Color.BLACK)
+        }
+        var downX = 0f
+        var downY = 0f
+        var startX = 0
+        var startY = 0
+        var dragged = false
+        b.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    startX = p.x
+                    startY = p.y
+                    dragged = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (event.rawX - downX).toInt()
+                    val dy = (event.rawY - downY).toInt()
+                    if (kotlin.math.abs(dx) > 5 || kotlin.math.abs(dy) > 5) dragged = true
+                    if (dragged) {
+                        p.x = (startX - dx).coerceAtLeast(0)
+                        p.y = (startY + dy).coerceAtLeast(0)
+                        runCatching { wm.updateViewLayout(b, p) }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!dragged) showPanel()
+                    true
+                }
+                else -> false
+            }
+        }
         wm.addView(b, p)
         bubble = b
     }
@@ -208,6 +249,7 @@ box.addView(action("Fechar") { removePanel() })
     private fun readImage(bitmap: Bitmap) {
         val code = prefs.getString("source_language", "en") ?: "en"
         if (!prefs.getBoolean("installed_$code", false)) {
+            bitmap.recycle()
             sayToast("Instale primeiro o pacote do idioma escolhido.")
             return
         }
@@ -230,6 +272,7 @@ box.addView(action("Fechar") { removePanel() })
             }
             .addOnFailureListener { error ->
                 recognizer.close()
+                bitmap.recycle()
                 sayToast("Erro no reconhecimento: " + error.localizedMessage)
             }
     }
@@ -238,21 +281,25 @@ box.addView(action("Fechar") { removePanel() })
         Thread {
             try {
                 if (!File(filesDir, "tessdata/tha.traineddata").exists()) {
+                    bitmap.recycle()
                     sayToast("Instale o pacote de OCR tailandês na tela inicial.")
                     return@Thread
                 }
                 val api = TessBaseAPI()
                 if (!api.init(filesDir.absolutePath, "tha")) {
                     api.end()
+                    bitmap.recycle()
                     sayToast("Não foi possível iniciar o OCR tailandês.")
                     return@Thread
                 }
                 api.setImage(bitmap)
                 val text = api.getUTF8Text() ?: ""
                 api.end()
+                bitmap.recycle()
                 if (text.isBlank()) sayToast("Não encontrei texto tailandês legível.")
                 else translateText(text, "th")
             } catch (e: Exception) {
+                if (!bitmap.isRecycled) bitmap.recycle()
                 sayToast("Erro no OCR tailandês: " + e.localizedMessage)
             }
         }.start()
@@ -271,7 +318,7 @@ box.addView(action("Fechar") { removePanel() })
         translator.translate(text)
             .addOnSuccessListener { translated ->
                 translator.close()
-                val clean = translated.replace(Regex("[.。．…—–‐‑‒−-]+"), " ")
+                val clean = translated.replace(Regex("[\\p{P}\\p{S}]+"), " ")
                     .replace(Regex("\\s+"), " ").trim()
                 if (clean.isBlank()) sayToast("A tradução ficou vazia.")
                 else showTranslation(clean)
