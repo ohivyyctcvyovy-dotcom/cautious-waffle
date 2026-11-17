@@ -8,7 +8,7 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'com.leitordetela.app.v3'
+        applicationId 'com.leitordetela.app.v4'
         minSdk 30
         targetSdk 35
         versionCode 4
