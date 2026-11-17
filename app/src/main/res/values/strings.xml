@@ -1,1 +1,3 @@
-<resources><string name="accessibility_description">Captura a tela apenas quando você tocar em Ler tela ou Ler seleção.</string></resources>
+<resources>
+    <string name="accessibility_description">Permite capturar a tela somente depois que você tocar no botão 455 e escolher Selecionar área. O serviço não lê o conteúdo das janelas.</string>
+</resources>
