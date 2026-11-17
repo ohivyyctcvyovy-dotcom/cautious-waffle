@@ -42,7 +42,7 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -v 4 "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee /tmp/455-badging.txt
-          grep -q "package: name='com.leitordetela.app.v5' versionCode='5' versionName='1.2.1'" /tmp/455-badging.txt
+          grep -q "package: name='com.leitordetela.app.v6' versionCode='6' versionName='1.2.2'" /tmp/455-badging.txt
           grep -q "launchable-activity: name='com.leitordetela.app.MainActivity'" /tmp/455-badging.txt
           grep -q "sdkVersion:'30'" /tmp/455-badging.txt
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" > /tmp/455-permissions.txt
@@ -56,7 +56,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: 455-apk-mediaprojection-v1.2.1
+          name: 455-apk-mediaprojection-v1.2.2
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
