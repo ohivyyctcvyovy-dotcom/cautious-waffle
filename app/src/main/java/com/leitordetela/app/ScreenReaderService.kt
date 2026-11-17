@@ -36,6 +36,10 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
     private var bubble: TextView? = null
     private var overlay: FrameLayout? = null
     private var selection: SelectionOverlay? = null
+    private var backButton: TextView? = null
+    private var readButton: TextView? = null
+    private var backButtonParams: WindowManager.LayoutParams? = null
+    private var readButtonParams: WindowManager.LayoutParams? = null
     private var tts: TextToSpeech? = null
     private var recognizer: TextRecognizer? = null
     private var translator: Translator? = null
@@ -136,27 +140,82 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
         val selector = SelectionOverlay()
         selection = selector
         frame.addView(selector, FrameLayout.LayoutParams(-1, -1))
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-            background = GradientDrawable().apply { setColor(0xdd171329.toInt()); cornerRadius = dp(18).toFloat() }
-        }
-        panel.addView(control("455  •  MOVER / REDIMENSIONAR") { })
-        panel.addView(control("TRADUZIR POR VOZ") { startLiveTranslation() })
-        panel.addView(control("PARAR TRADUÇÃO") { stopLiveTranslation() })
-        val panelParams = FrameLayout.LayoutParams(dp(220), -2, Gravity.BOTTOM or Gravity.END).apply {
-            rightMargin = dp(12); bottomMargin = dp(24)
-        }
-        frame.addView(panel, panelParams)
-        val close = control("FECHAR SELEÇÃO") { closeSelector() }
-        val closeParams = FrameLayout.LayoutParams(dp(170), dp(46), Gravity.TOP or Gravity.END).apply { topMargin = dp(32); rightMargin = dp(12) }
-        frame.addView(close, closeParams)
         val type = if (Build.VERSION.SDK_INT >= 26) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE
         val lp = WindowManager.LayoutParams(-1, -1, type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START }
-        try { wm?.addView(frame, lp); overlay = frame } catch (_: Exception) { overlay = null; showBubble() }
+        try { wm?.addView(frame, lp); overlay = frame; showFloatingControls() } catch (_: Exception) { overlay = null; showBubble() }
+    }
+
+    private fun showFloatingControls() {
+        addMovableControl("back", "VOLTAR") { closeSelector() }
+        addMovableControl("read", if (translating) "PARAR" else "LER TELA") {
+            if (translating) stopLiveTranslation() else startLiveTranslation()
+            readButton?.text = if (translating) "PARAR" else "LER TELA"
+        }
+    }
+
+    private fun addMovableControl(key: String, label: String, action: () -> Unit) {
+        val view = TextView(this).apply {
+            text = label; textSize = 13f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply { setColor(0xff6346bd.toInt()); cornerRadius = dp(24).toFloat(); setStroke(dp(2), Color.WHITE) }
+            elevation = dp(8).toFloat()
+        }
+        val prefs = getSharedPreferences("455_overlay_positions", MODE_PRIVATE)
+        val defaultX = dp(12)
+        val defaultY = if (key == "back") dp(110) else dp(170)
+        val params = WindowManager.LayoutParams(dp(112), dp(50),
+            if (Build.VERSION.SDK_INT >= 26) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = prefs.getInt("${key}_x", defaultX).coerceAtLeast(0)
+                y = prefs.getInt("${key}_y", defaultY).coerceAtLeast(0)
+            }
+        var downX = 0f
+        var downY = 0f
+        var startX = 0
+        var startY = 0
+        var dragged = false
+        view.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX; downY = event.rawY
+                    startX = params.x; startY = params.y; dragged = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (event.rawX - downX).toInt()
+                    val dy = (event.rawY - downY).toInt()
+                    if (kotlin.math.abs(dx) > dp(4) || kotlin.math.abs(dy) > dp(4)) dragged = true
+                    if (dragged) {
+                        params.x = (startX + dx).coerceIn(0, (resources.displayMetrics.widthPixels - dp(112)).coerceAtLeast(0))
+                        params.y = (startY + dy).coerceIn(0, (resources.displayMetrics.heightPixels - dp(50)).coerceAtLeast(0))
+                        try { wm?.updateViewLayout(view, params) } catch (_: Exception) { }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (dragged) prefs.edit().putInt("${key}_x", params.x).putInt("${key}_y", params.y).apply()
+                    else action()
+                    true
+                }
+                else -> true
+            }
+        }
+        try {
+            wm?.addView(view, params)
+            if (key == "back") { backButton = view; backButtonParams = params }
+            else { readButton = view; readButtonParams = params }
+        } catch (_: Exception) { }
+    }
+
+    private fun removeFloatingControls() {
+        backButton?.let { try { wm?.removeView(it) } catch (_: Exception) { } }
+        readButton?.let { try { wm?.removeView(it) } catch (_: Exception) { } }
+        backButton = null; readButton = null
+        backButtonParams = null; readButtonParams = null
     }
 
     private fun control(label: String, action: () -> Unit) = TextView(this).apply {
@@ -172,6 +231,7 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
         stopLiveTranslation()
         overlay?.let { try { wm?.removeView(it) } catch (_: Exception) { } }
         overlay = null; selection = null
+        removeFloatingControls()
         showBubble()
     }
 
@@ -184,7 +244,8 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
         if (translator == null) { Toast.makeText(this, "Pacote de tradução não disponível. Instale o idioma no app.", Toast.LENGTH_LONG).show(); return }
         translating = true
         lastSpoken = ""
-        Toast.makeText(this, "Tradução contínua ativada. Vou falar quando o texto mudar.", Toast.LENGTH_SHORT).show()
+        readButton?.text = "PARAR"
+        Toast.makeText(this, "Leitura por voz ativada somente na área marcada.", Toast.LENGTH_SHORT).show()
         scheduleFrame(250)
     }
 
@@ -192,6 +253,7 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
         translating = false
         handler.removeCallbacks(frameTask)
         tts?.stop()
+        readButton?.text = "LER TELA"
         busy.set(false)
     }
 
@@ -256,8 +318,15 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
         private val rect = RectF(screenW * .08f, screenH * .20f, screenW * .92f, screenH * .68f)
         private var lastX = 0f
         private var lastY = 0f
-        private var resize = false
+        private var activeCorner = -1
+        private val handleRadius get() = dp(24).toFloat()
         private val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xffb7a5ff.toInt(); style = Paint.Style.STROKE; strokeWidth = dp(3).toFloat() }
+        private val handleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL }
+        private val handleDot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xff7152dc.toInt(); style = Paint.Style.FILL }
+        private fun corners() = arrayOf(
+            PointF(rect.left, rect.top), PointF(rect.right, rect.top),
+            PointF(rect.left, rect.bottom), PointF(rect.right, rect.bottom)
+        )
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             val outside = Path().apply {
@@ -267,28 +336,34 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
             }
             canvas.drawPath(outside, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x66000000 })
             canvas.drawRect(rect, border)
-            canvas.drawCircle(rect.right, rect.bottom, dp(15).toFloat(), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
-            canvas.drawCircle(rect.right, rect.bottom, dp(7).toFloat(), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xff7152dc.toInt() })
+            corners().forEach { p ->
+                canvas.drawCircle(p.x, p.y, handleRadius, handleFill)
+                canvas.drawCircle(p.x, p.y, dp(8).toFloat(), handleDot)
+            }
         }
         override fun onTouchEvent(e: MotionEvent): Boolean {
             when (e.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    lastX=e.rawX; lastY=e.rawY
-                    resize = kotlin.math.hypot(e.rawX-rect.right, e.rawY-rect.bottom) < dp(40)
+                    lastX=e.x; lastY=e.y
+                    activeCorner = corners().indexOfFirst { kotlin.math.hypot(e.x-it.x, e.y-it.y) <= handleRadius * 1.7f }
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx=e.rawX-lastX; val dy=e.rawY-lastY
-                    if (resize) {
-                        rect.right=(rect.right+dx).coerceIn(rect.left+dp(80), screenW.toFloat())
-                        rect.bottom=(rect.bottom+dy).coerceIn(rect.top+dp(60), screenH.toFloat())
-                    } else {
+                    val dx=e.x-lastX; val dy=e.y-lastY
+                    if (activeCorner >= 0) {
+                        when (activeCorner) {
+                            0 -> { rect.left=(rect.left+dx).coerceIn(0f, rect.right-dp(80)); rect.top=(rect.top+dy).coerceIn(0f, rect.bottom-dp(60)) }
+                            1 -> { rect.right=(rect.right+dx).coerceIn(rect.left+dp(80), width.toFloat()); rect.top=(rect.top+dy).coerceIn(0f, rect.bottom-dp(60)) }
+                            2 -> { rect.left=(rect.left+dx).coerceIn(0f, rect.right-dp(80)); rect.bottom=(rect.bottom+dy).coerceIn(rect.top+dp(60), height.toFloat()) }
+                            3 -> { rect.right=(rect.right+dx).coerceIn(rect.left+dp(80), width.toFloat()); rect.bottom=(rect.bottom+dy).coerceIn(rect.top+dp(60), height.toFloat()) }
+                        }
+                    } else if (rect.contains(e.x, e.y)) {
                         val w=rect.width(); val h=rect.height()
-                        val l=(rect.left+dx).coerceIn(0f, screenW-w)
-                        val t=(rect.top+dy).coerceIn(0f, screenH-h)
+                        val l=(rect.left+dx).coerceIn(0f, width-w)
+                        val t=(rect.top+dy).coerceIn(0f, height-h)
                         rect.set(l,t,l+w,t+h)
                     }
-                    lastX=e.rawX; lastY=e.rawY; invalidate(); return true
+                    lastX=e.x; lastY=e.y; invalidate(); return true
                 }
                 MotionEvent.ACTION_UP -> { performClick(); return true }
             }
