@@ -42,7 +42,7 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -v 4 "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee /tmp/455-badging.txt
-          grep -q "package: name='com.leitordetela.app.v3' versionCode='4' versionName='1.2.0'" /tmp/455-badging.txt
+          grep -q "package: name='com.leitordetela.app.v4' versionCode='4' versionName='1.2.0'" /tmp/455-badging.txt
           grep -q "launchable-activity: name='com.leitordetela.app.MainActivity'" /tmp/455-badging.txt
           grep -q "sdkVersion:'30'" /tmp/455-badging.txt
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" > /tmp/455-permissions.txt
