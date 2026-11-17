@@ -1,6 +1,8 @@
 package com.leitordetela.app
 
 import android.app.Activity
+import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -23,6 +25,7 @@ class MainActivity : Activity() {
     private lateinit var picker: Spinner
     private lateinit var status: TextView
     private lateinit var installButton: Button
+    private val projectionRequest = 455
     private val prefs by lazy { getSharedPreferences("455", MODE_PRIVATE) }
     private val bg = Color.rgb(15, 16, 29)
     private val card = Color.rgb(27, 29, 49)
@@ -90,16 +93,14 @@ class MainActivity : Activity() {
         accessCard.addView(text("COMEÇAR A USAR", 12f, accent, true))
         accessCard.addView(text("Ative o botão flutuante 455", 18f, Color.WHITE, true).apply { setPadding(0, dp(5), 0, dp(5)) })
         accessCard.addView(text("Depois de ativar, abra o aplicativo que contém o texto e toque no botão 455 para selecionar uma área.", 14f, muted, false))
-        accessCard.addView(primaryButton("Abrir configurações de acessibilidade") {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        }, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(14) })
+        accessCard.addView(primaryButton("Iniciar captura de tela") { requestCapture() }, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(14) })
         page.addView(accessCard)
 
         val steps = card()
         steps.addView(text("PASSO A PASSO", 12f, accent, true))
-        addStep(steps, "01", "Toque no botão 455", "Abra o pequeno menu flutuante.")
-        addStep(steps, "02", "Marque a região", "Arraste a moldura e ajuste o canto para selecionar o texto.")
-        addStep(steps, "03", "Traduza e ouça", "Toque em Traduzir. Depois escolha Ouvir tradução ou Fechar tradução.")
+        addStep(steps, "01", "Autorize a captura", "Confirme a solicitação exibida pelo Android.")
+        addStep(steps, "02", "Capture a tela", "Abra o app desejado e use Capturar agora na notificação do 455.")
+        addStep(steps, "03", "Selecione e traduza", "Ajuste a moldura e toque em Traduzir. Depois escolha Ouvir tradução.")
         page.addView(steps)
 
         val privacy = card()
@@ -121,6 +122,26 @@ class MainActivity : Activity() {
             addView(page)
         })
         updateInstallButton()
+    }
+
+    private fun requestCapture() {
+        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        @Suppress("DEPRECATION")
+        startActivityForResult(manager.createScreenCaptureIntent(), projectionRequest)
+    }
+
+    @Deprecated("Deprecated in Android API")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == projectionRequest) {
+            if (resultCode == Activity.RESULT_OK && data != null) {
+                val service = Intent(this, ScreenReaderService::class.java)
+                    .putExtra(ScreenReaderService.EXTRA_RESULT_CODE, resultCode)
+                    .putExtra(ScreenReaderService.EXTRA_DATA, data)
+                if (Build.VERSION.SDK_INT >= 26) startForegroundService(service) else startService(service)
+                status.text = "Captura autorizada. Abra o aplicativo desejado e use Capturar agora na notificação do 455."
+            } else status.text = "A captura não foi autorizada."
+        }
     }
 
     private fun addStep(parent: LinearLayout, number: String, title: String, detail: String) {
