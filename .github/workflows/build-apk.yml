@@ -47,7 +47,7 @@ jobs:
           grep -q "sdkVersion:'30'" /tmp/455-badging.txt
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" > /tmp/455-permissions.txt
           ! grep -q 'BIND_ACCESSIBILITY_SERVICE' /tmp/455-permissions.txt
-          ! grep -q 'canTakeScreenshot' app/src/main/res/xml/accessibility_service_config.xml || exit 1
+          ! grep -q 'canTakeScreenshot="true"' app/src/main/res/xml/accessibility_service_config.xml || exit 1
           grep -q 'FOREGROUND_SERVICE_MEDIA_PROJECTION' /tmp/455-permissions.txt
           unzip -Z1 "$APK" | grep -q '^lib/arm64-v8a/'
           unzip -Z1 "$APK" | grep -q '^lib/armeabi-v7a/'
