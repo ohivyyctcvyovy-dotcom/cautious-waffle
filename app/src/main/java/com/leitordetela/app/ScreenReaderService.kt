@@ -47,6 +47,8 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
     private val busy = AtomicBoolean(false)
     private var translating = false
     private var lastSpoken = ""
+    private var lastCandidate = ""
+    private var stableCandidateCount = 0
     private var selectedLanguage = "en"
     private var screenW = 0
     private var screenH = 0
@@ -118,16 +120,51 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
 
     private fun showBubble() {
         if (bubble != null || projection == null || !android.provider.Settings.canDrawOverlays(this)) return
+        val prefs = getSharedPreferences("455_overlay_positions", MODE_PRIVATE)
+        val size = dp(38)
         val b = TextView(this).apply {
-            text = "455"; textSize = 17f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            text = "455"; textSize = 11f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
-            background = GradientDrawable().apply { setColor(0xff7152dc.toInt()); cornerRadius = dp(32).toFloat(); setStroke(dp(2), Color.WHITE) }
-            setOnClickListener { openSelector() }
+            background = GradientDrawable().apply { setColor(0xff7152dc.toInt()); cornerRadius = dp(24).toFloat(); setStroke(dp(1), Color.WHITE) }
+            elevation = dp(5).toFloat()
         }
         val type = if (Build.VERSION.SDK_INT >= 26) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE
-        val lp = WindowManager.LayoutParams(dp(62), dp(62), type,
+        val lp = WindowManager.LayoutParams(size, size, type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-            PixelFormat.TRANSLUCENT).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; x = dp(10) }
+            PixelFormat.TRANSLUCENT).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = prefs.getInt("bubble_x", (resources.displayMetrics.widthPixels - size - dp(8)).coerceAtLeast(0)).coerceIn(0, (resources.displayMetrics.widthPixels-size).coerceAtLeast(0))
+                y = prefs.getInt("bubble_y", dp(150)).coerceIn(0, (resources.displayMetrics.heightPixels-size).coerceAtLeast(0))
+            }
+        var downX = 0f
+        var downY = 0f
+        var startX = 0
+        var startY = 0
+        var dragged = false
+        b.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX=event.rawX; downY=event.rawY; startX=lp.x; startY=lp.y; dragged=false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx=(event.rawX-downX).toInt(); val dy=(event.rawY-downY).toInt()
+                    if (kotlin.math.abs(dx)>dp(3) || kotlin.math.abs(dy)>dp(3)) dragged=true
+                    if (dragged) {
+                        lp.x=(startX+dx).coerceIn(0,(resources.displayMetrics.widthPixels-size).coerceAtLeast(0))
+                        lp.y=(startY+dy).coerceIn(0,(resources.displayMetrics.heightPixels-size).coerceAtLeast(0))
+                        try { wm?.updateViewLayout(b,lp) } catch (_: Exception) { }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (dragged) prefs.edit().putInt("bubble_x",lp.x).putInt("bubble_y",lp.y).apply()
+                    else openSelector()
+                    true
+                }
+                else -> true
+            }
+        }
         try { wm?.addView(b, lp); bubble = b } catch (_: Exception) { }
     }
 
@@ -244,6 +281,8 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
         if (translator == null) { Toast.makeText(this, "Pacote de tradução não disponível. Instale o idioma no app.", Toast.LENGTH_LONG).show(); return }
         translating = true
         lastSpoken = ""
+        lastCandidate = ""
+        stableCandidateCount = 0
         readButton?.text = "PARAR"
         Toast.makeText(this, "Leitura por voz ativada somente na área marcada.", Toast.LENGTH_SHORT).show()
         scheduleFrame(250)
@@ -252,6 +291,8 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
     private fun stopLiveTranslation() {
         translating = false
         handler.removeCallbacks(frameTask)
+        lastCandidate = ""
+        stableCandidateCount = 0
         tts?.stop()
         readButton?.text = "LER TELA"
         busy.set(false)
@@ -285,17 +326,41 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
             client.process(InputImage.fromBitmap(crop, 0))
                 .addOnSuccessListener { result ->
                     crop.recycle()
-                    val raw = result.text
-                    if (raw.isNotBlank()) {
-                        translator?.translate(raw)?.addOnSuccessListener { translated ->
-                            val clean = translated.replace(Regex("[\\p{P}\\p{S}\\p{N}]+"), " ").replace(Regex("\\s+"), " ").trim()
-                            if (clean.isNotBlank() && clean != lastSpoken) {
-                                lastSpoken = clean
-                                tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "455-live")
+                    // Preserve OCR line breaks and block order so the translator receives context.
+                    val raw = result.textBlocks
+                        .filter { it.text.isNotBlank() }
+                        .joinToString("\\n") { block ->
+                            block.lines.joinToString("\\n") { line -> line.text.trim() }
+                        }.trim()
+                    val candidate = raw.replace(Regex("\\s+"), " ").trim()
+                    if (candidate.length < 3) {
+                        lastCandidate = ""
+                        stableCandidateCount = 0
+                        busy.set(false)
+                        return@addOnSuccessListener
+                    }
+                    if (candidate == lastCandidate) stableCandidateCount++ else {
+                        lastCandidate = candidate
+                        stableCandidateCount = 1
+                    }
+                    // Wait for the same complete reading in two consecutive frames;
+                    // this avoids translating half-rendered scrolling text or transient OCR errors.
+                    if (stableCandidateCount < 2 || candidate == lastSpoken) {
+                        busy.set(false)
+                        return@addOnSuccessListener
+                    }
+                    translator?.translate(raw)?.addOnSuccessListener { translated ->
+                        val spoken = translated
+                            .replace(Regex("[\\p{P}\\p{S}\\p{N}]+"), " ")
+                            .replace(Regex("\\s+"), " ").trim()
+                        if (spoken.length >= 2 && candidate != lastSpoken) {
+                            lastSpoken = candidate
+                            if (translating && spoken.isNotBlank()) {
+                                tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "455-live")
                             }
-                            busy.set(false)
-                        }?.addOnFailureListener { busy.set(false) } ?: run { busy.set(false) }
-                    } else busy.set(false)
+                        }
+                        busy.set(false)
+                    }?.addOnFailureListener { busy.set(false) } ?: run { busy.set(false) }
                 }
                 .addOnFailureListener { crop.recycle(); busy.set(false) }
         } catch (_: Exception) { image.close(); busy.set(false); return }
@@ -318,15 +383,13 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
         private val rect = RectF(screenW * .08f, screenH * .20f, screenW * .92f, screenH * .68f)
         private var lastX = 0f
         private var lastY = 0f
-        private var activeCorner = -1
-        private val handleRadius get() = dp(24).toFloat()
-        private val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xffb7a5ff.toInt(); style = Paint.Style.STROKE; strokeWidth = dp(3).toFloat() }
+        private var activeHandle = -1
+        private val handleRadius get() = dp(7).toFloat()
+        private val touchRadius get() = dp(22).toFloat()
+        private val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xffb7a5ff.toInt(); style = Paint.Style.STROKE; strokeWidth = dp(2).toFloat() }
         private val handleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL }
         private val handleDot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xff7152dc.toInt(); style = Paint.Style.FILL }
-        private fun corners() = arrayOf(
-            PointF(rect.left, rect.top), PointF(rect.right, rect.top),
-            PointF(rect.left, rect.bottom), PointF(rect.right, rect.bottom)
-        )
+        private fun handles() = arrayOf(PointF((rect.left+rect.right)/2f, rect.top), PointF((rect.left+rect.right)/2f, rect.bottom))
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             val outside = Path().apply {
@@ -336,27 +399,24 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
             }
             canvas.drawPath(outside, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x66000000 })
             canvas.drawRect(rect, border)
-            corners().forEach { p ->
+            handles().forEach { p ->
                 canvas.drawCircle(p.x, p.y, handleRadius, handleFill)
-                canvas.drawCircle(p.x, p.y, dp(8).toFloat(), handleDot)
+                canvas.drawCircle(p.x, p.y, dp(4).toFloat(), handleDot)
             }
         }
         override fun onTouchEvent(e: MotionEvent): Boolean {
             when (e.action) {
                 MotionEvent.ACTION_DOWN -> {
                     lastX=e.x; lastY=e.y
-                    activeCorner = corners().indexOfFirst { kotlin.math.hypot(e.x-it.x, e.y-it.y) <= handleRadius * 1.7f }
+                    activeHandle = handles().indexOfFirst { kotlin.math.hypot(e.x-it.x, e.y-it.y) <= touchRadius }
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx=e.x-lastX; val dy=e.y-lastY
-                    if (activeCorner >= 0) {
-                        when (activeCorner) {
-                            0 -> { rect.left=(rect.left+dx).coerceIn(0f, rect.right-dp(80)); rect.top=(rect.top+dy).coerceIn(0f, rect.bottom-dp(60)) }
-                            1 -> { rect.right=(rect.right+dx).coerceIn(rect.left+dp(80), width.toFloat()); rect.top=(rect.top+dy).coerceIn(0f, rect.bottom-dp(60)) }
-                            2 -> { rect.left=(rect.left+dx).coerceIn(0f, rect.right-dp(80)); rect.bottom=(rect.bottom+dy).coerceIn(rect.top+dp(60), height.toFloat()) }
-                            3 -> { rect.right=(rect.right+dx).coerceIn(rect.left+dp(80), width.toFloat()); rect.bottom=(rect.bottom+dy).coerceIn(rect.top+dp(60), height.toFloat()) }
-                        }
+                    if (activeHandle == 0) {
+                        rect.top=(rect.top+dy).coerceIn(0f, rect.bottom-dp(60))
+                    } else if (activeHandle == 1) {
+                        rect.bottom=(rect.bottom+dy).coerceIn(rect.top+dp(60), height.toFloat())
                     } else if (rect.contains(e.x, e.y)) {
                         val w=rect.width(); val h=rect.height()
                         val l=(rect.left+dx).coerceIn(0f, width-w)
@@ -365,7 +425,7 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
                     }
                     lastX=e.x; lastY=e.y; invalidate(); return true
                 }
-                MotionEvent.ACTION_UP -> { performClick(); return true }
+                MotionEvent.ACTION_UP -> { activeHandle=-1; performClick(); return true }
             }
             return true
         }
