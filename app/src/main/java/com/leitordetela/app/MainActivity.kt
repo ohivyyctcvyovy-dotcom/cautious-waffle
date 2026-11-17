@@ -70,7 +70,7 @@ class MainActivity : Activity() {
         picker = Spinner(this).apply {
             background = rounded(Color.rgb(67, 48, 125), 14)
             setPadding(dp(10), dp(5), dp(10), dp(5))
-            if (Build.VERSION.SDK_INT >= 16) popupBackground = rounded(Color.rgb(47, 34, 88), 14)
+            if (Build.VERSION.SDK_INT >= 16) setPopupBackgroundDrawable(rounded(Color.rgb(47, 34, 88), 14))
             adapter = object : ArrayAdapter<Lang>(this@MainActivity, android.R.layout.simple_spinner_item, langs) {
                 private fun row(position: Int, convertView: View?, dropdown: Boolean): View {
                     val label = (convertView as? TextView) ?: TextView(this@MainActivity)
