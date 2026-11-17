@@ -171,7 +171,7 @@ class CaptureActivity : Activity(), TextToSpeech.OnInitListener {
         val client=Translation.getClient(TranslatorOptions.Builder().setSourceLanguage(src).setTargetLanguage(TranslateLanguage.PORTUGUESE).build())
         client.translate(value).addOnSuccessListener { result ->
             client.close()
-            val clean=result.replace(Regex("[\\p{P}\\p{S}]+")," ").replace(Regex("\\s+")," ").trim()
+            val clean=result.replace(Regex("[\\p{P}\\p{S}\\p{N}]+")," ").replace(Regex("\\s+")," ").trim()
             if(clean.isBlank()) { toast("A tradução ficou vazia."); return@addOnSuccessListener }
             showTranslation(clean)
         }.addOnFailureListener { e -> client.close(); toast("Falha na tradução: ${e.localizedMessage}") }
@@ -185,5 +185,11 @@ class CaptureActivity : Activity(), TextToSpeech.OnInitListener {
     }
     override fun onInit(status:Int) { if(status==TextToSpeech.SUCCESS) { tts?.language=Locale("pt","BR"); tts?.setSpeechRate(.94f) } }
     private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
-    override fun onDestroy() { if(::bitmap.isInitialized && !bitmap.isRecycled)bitmap.recycle(); tts?.stop(); tts?.shutdown(); super.onDestroy() }
+    override fun onDestroy() {
+        if (::bitmap.isInitialized && !bitmap.isRecycled) bitmap.recycle()
+        tts?.stop()
+        tts?.shutdown()
+        try { startService(Intent(this, ScreenReaderService::class.java).setAction(ScreenReaderService.ACTION_SHOW_OVERLAY)) } catch (_: Exception) { }
+        super.onDestroy()
+    }
 }
