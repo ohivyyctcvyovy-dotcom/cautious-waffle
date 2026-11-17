@@ -105,7 +105,7 @@ class CaptureActivity : Activity(), TextToSpeech.OnInitListener {
                 if(!File(filesDir,"tessdata/tha.traineddata").exists()) { b.recycle(); runOnUiThread { toast("Instale o OCR tailandês na tela inicial.") }; return@Thread }
                 val api=TessBaseAPI()
                 if(!api.init(filesDir.absolutePath,"tha")) { api.end(); b.recycle(); return@Thread }
-                api.setImage(b); val value=api.uTF8Text ?: ""; api.end(); b.recycle()
+                api.setImage(b); val value=api.getUTF8Text() ?: ""; api.end(); b.recycle()
                 runOnUiThread { if(value.isBlank())toast("Nenhum texto encontrado.") else translate(value,"th") }
             } catch(e:Exception) { if(!b.isRecycled)b.recycle(); runOnUiThread { toast("Falha no OCR: ${e.localizedMessage}") } }
         }.start()
