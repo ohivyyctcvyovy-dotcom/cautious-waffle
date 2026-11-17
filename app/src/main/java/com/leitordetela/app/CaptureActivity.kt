@@ -1,6 +1,7 @@
 package com.leitordetela.app
 
 import android.app.Activity
+import android.content.Intent
 import android.graphics.*
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
