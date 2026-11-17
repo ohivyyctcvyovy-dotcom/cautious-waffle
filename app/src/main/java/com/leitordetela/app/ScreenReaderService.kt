@@ -274,6 +274,10 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
 
     private fun startLiveTranslation() {
         if (projection == null || selection == null) { openSelector(); return }
+        if (selection?.selectionRect() == null) {
+            Toast.makeText(this, "Toque e arraste o dedo para marcar a área de leitura.", Toast.LENGTH_LONG).show()
+            return
+        }
         if (selectedLanguage == "th") {
             Toast.makeText(this, "O modo contínuo para tailandês ainda não está disponível.", Toast.LENGTH_LONG).show()
             return
@@ -380,57 +384,113 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
     }
 
     private inner class SelectionOverlay : View(this) {
-        private val rect = RectF(screenW * .08f, screenH * .20f, screenW * .92f, screenH * .68f)
+        private var rect: RectF? = null
         private var lastX = 0f
         private var lastY = 0f
         private var activeHandle = -1
-        private val handleRadius get() = dp(7).toFloat()
-        private val touchRadius get() = dp(22).toFloat()
-        private val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xffb7a5ff.toInt(); style = Paint.Style.STROKE; strokeWidth = dp(2).toFloat() }
-        private val handleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL }
-        private val handleDot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xff7152dc.toInt(); style = Paint.Style.FILL }
-        private fun handles() = arrayOf(PointF((rect.left+rect.right)/2f, rect.top), PointF((rect.left+rect.right)/2f, rect.bottom))
+        private var creating = false
+        private var moving = false
+        private val minSize get() = dp(36).toFloat()
+        private val handleRadius get() = dp(5).toFloat()
+        private val touchRadius get() = dp(25).toFloat()
+        private val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xffb7a5ff.toInt()
+            style = Paint.Style.STROKE
+            strokeWidth = dp(2).toFloat()
+        }
+        private val handleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+        private val handleDot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xff7152dc.toInt() }
+        private fun points(r: RectF) = arrayOf(
+            PointF(r.left,r.top), PointF((r.left+r.right)/2f,r.top), PointF(r.right,r.top),
+            PointF(r.right,(r.top+r.bottom)/2f), PointF(r.right,r.bottom),
+            PointF((r.left+r.right)/2f,r.bottom), PointF(r.left,r.bottom),
+            PointF(r.left,(r.top+r.bottom)/2f)
+        )
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
+            val r = rect
+            if (r == null) {
+                canvas.drawColor(0x44000000)
+                return
+            }
             val outside = Path().apply {
                 fillType = Path.FillType.EVEN_ODD
-                addRect(0f, 0f, width.toFloat(), height.toFloat(), Path.Direction.CW)
-                addRect(rect, Path.Direction.CW)
+                addRect(0f,0f,width.toFloat(),height.toFloat(),Path.Direction.CW)
+                addRect(r,Path.Direction.CW)
             }
             canvas.drawPath(outside, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x66000000 })
-            canvas.drawRect(rect, border)
-            handles().forEach { p ->
-                canvas.drawCircle(p.x, p.y, handleRadius, handleFill)
-                canvas.drawCircle(p.x, p.y, dp(4).toFloat(), handleDot)
+            canvas.drawRect(r,border)
+            points(r).forEach { p ->
+                canvas.drawCircle(p.x,p.y,handleRadius,handleFill)
+                canvas.drawCircle(p.x,p.y,dp(2).toFloat(),handleDot)
             }
         }
         override fun onTouchEvent(e: MotionEvent): Boolean {
-            when (e.action) {
+            when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    lastX=e.x; lastY=e.y
-                    activeHandle = handles().indexOfFirst { kotlin.math.hypot(e.x-it.x, e.y-it.y) <= touchRadius }
+                    lastX=e.x; lastY=e.y; creating=false; moving=false
+                    val r=rect
+                    activeHandle = if (r == null) -1 else points(r).indexOfFirst {
+                        kotlin.math.hypot(e.x-it.x,e.y-it.y) <= touchRadius
+                    }
+                    if (r == null || (activeHandle == -1 && !r.contains(e.x,e.y))) {
+                        rect=RectF(e.x,e.y,e.x,e.y)
+                        creating=true
+                    } else if (activeHandle == -1) moving=true
+                    invalidate()
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx=e.x-lastX; val dy=e.y-lastY
-                    if (activeHandle == 0) {
-                        rect.top=(rect.top+dy).coerceIn(0f, rect.bottom-dp(60))
-                    } else if (activeHandle == 1) {
-                        rect.bottom=(rect.bottom+dy).coerceIn(rect.top+dp(60), height.toFloat())
-                    } else if (rect.contains(e.x, e.y)) {
-                        val w=rect.width(); val h=rect.height()
-                        val l=(rect.left+dx).coerceIn(0f, width-w)
-                        val t=(rect.top+dy).coerceIn(0f, height-h)
-                        rect.set(l,t,l+w,t+h)
+                    val r=rect
+                    if (r != null) {
+                        if (creating) {
+                            r.right=e.x; r.bottom=e.y
+                            normalize(r)
+                        } else if (moving) {
+                            val w=r.width(); val h=r.height()
+                            val l=(r.left+dx).coerceIn(0f,(width-w).coerceAtLeast(0f))
+                            val t=(r.top+dy).coerceIn(0f,(height-h).coerceAtLeast(0f))
+                            r.set(l,t,l+w,t+h)
+                        } else if (activeHandle >= 0) resize(r,activeHandle,e.x,e.y)
                     }
-                    lastX=e.x; lastY=e.y; invalidate(); return true
+                    lastX=e.x; lastY=e.y; invalidate()
+                    return true
                 }
-                MotionEvent.ACTION_UP -> { activeHandle=-1; performClick(); return true }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val r=rect
+                    if (creating && (r == null || r.width()<minSize || r.height()<minSize)) {
+                        rect=null
+                        Toast.makeText(this@ScreenReaderService,"Arraste para marcar uma área maior.",Toast.LENGTH_SHORT).show()
+                    }
+                    creating=false; moving=false; activeHandle=-1
+                    invalidate(); performClick()
+                    return true
+                }
             }
             return true
         }
+        private fun normalize(r: RectF) {
+            val l=minOf(r.left,r.right).coerceIn(0f,width.toFloat())
+            val t=minOf(r.top,r.bottom).coerceIn(0f,height.toFloat())
+            val rr=maxOf(r.left,r.right).coerceIn(0f,width.toFloat())
+            val bb=maxOf(r.top,r.bottom).coerceIn(0f,height.toFloat())
+            r.set(l,t,rr,bb)
+        }
+        private fun resize(r: RectF, h: Int, x: Float, y: Float) {
+            when(h) {
+                0 -> { r.left=x.coerceIn(0f,r.right-minSize); r.top=y.coerceIn(0f,r.bottom-minSize) }
+                1 -> r.top=y.coerceIn(0f,r.bottom-minSize)
+                2 -> { r.right=x.coerceIn(r.left+minSize,width.toFloat()); r.top=y.coerceIn(0f,r.bottom-minSize) }
+                3 -> r.right=x.coerceIn(r.left+minSize,width.toFloat())
+                4 -> { r.right=x.coerceIn(r.left+minSize,width.toFloat()); r.bottom=y.coerceIn(r.top+minSize,height.toFloat()) }
+                5 -> r.bottom=y.coerceIn(r.top+minSize,height.toFloat())
+                6 -> { r.left=x.coerceIn(0f,r.right-minSize); r.bottom=y.coerceIn(r.top+minSize,height.toFloat()) }
+                7 -> r.left=x.coerceIn(0f,r.right-minSize)
+            }
+        }
         override fun performClick(): Boolean { super.performClick(); return true }
-        fun selectionRect() = RectF(rect)
+        fun selectionRect(): RectF? = rect?.let { RectF(it) }
     }
 
     override fun onInit(status: Int) {
