@@ -1,406 +1,128 @@
 package com.leitordetela.app
 
-import android.accessibilityservice.AccessibilityService
-import android.graphics.*
-import android.graphics.drawable.GradientDrawable
-import android.os.Build
-import android.speech.tts.TextToSpeech
-import android.view.*
-import android.widget.*
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
-import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
-import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
-import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
-import com.google.mlkit.nl.translate.*
-import com.googlecode.tesseract.android.TessBaseAPI
+import android.app.*
+import android.content.*
+import android.graphics.Bitmap
+import android.hardware.display.DisplayManager
+import android.hardware.display.VirtualDisplay
+import android.media.ImageReader
+import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionManager
+import android.os.*
+import androidx.core.app.NotificationCompat
 import java.io.File
-import java.util.Locale
-import kotlin.math.hypot
+import java.io.FileOutputStream
 
-class ScreenReaderService : AccessibilityService(), TextToSpeech.OnInitListener {
-    private lateinit var wm: WindowManager
-    private var bubble: TextView? = null
-    private var panel: View? = null
-    private var selector: View? = null
-    private var tts: TextToSpeech? = null
-    private val prefs by lazy { getSharedPreferences("455", MODE_PRIVATE) }
+class ScreenReaderService : Service() {
+    private var projection: MediaProjection? = null
+    private var reader: ImageReader? = null
+    private var display: VirtualDisplay? = null
+    private val channel = "455_capture"
+    private val notificationId = 455
 
-    override fun onServiceConnected() {
-        super.onServiceConnected()
-        wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        tts = TextToSpeech(this, this)
-        createBubble()
+    override fun onBind(intent: Intent?) = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_CAPTURE) {
+            captureFrame()
+            return START_STICKY
+        }
+        if (intent?.action == ACTION_STOP) {
+            stopProjection()
+            return START_NOT_STICKY
+        }
+        val code = intent?.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED) ?: Activity.RESULT_CANCELED
+        val data = if (Build.VERSION.SDK_INT >= 33) intent?.getParcelableExtra(EXTRA_DATA, Intent::class.java)
+                   else @Suppress("DEPRECATION") (intent?.getParcelableExtra(EXTRA_DATA))
+        if (code != Activity.RESULT_OK || data == null) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        startForeground(notificationId, buildNotification())
+        try {
+            val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            projection = manager.getMediaProjection(code, data)
+            val metrics = resources.displayMetrics
+            val width = metrics.widthPixels
+            val height = metrics.heightPixels
+            reader = ImageReader.newInstance(width, height, android.graphics.PixelFormat.RGBA_8888, 3)
+            projection?.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() { stopProjection() }
+            }, Handler(Looper.getMainLooper()))
+            display = projection?.createVirtualDisplay(
+                "455-screen-capture", width, height, metrics.densityDpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader?.surface, null, null
+            )
+        } catch (e: Exception) {
+            stopProjection()
+            stopSelf()
+        }
+        return START_STICKY
     }
 
-    override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            tts?.language = Locale("pt", "BR")
-            tts?.setSpeechRate(0.94f)
-        }
-    }
-
-    override fun onAccessibilityEvent(event: android.view.accessibility.AccessibilityEvent?) = Unit
-    override fun onInterrupt() = Unit
-
-    private fun createBubble() {
-        val p = WindowManager.LayoutParams(
-            58, 58, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.END; x = 18; y = 250 }
-        val b = TextView(this).apply {
-            text = "455"
-            textSize = 16f
-            typeface = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL)
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(160, 130, 255), Color.rgb(83, 66, 190))
-            ).apply {
-                shape = GradientDrawable.OVAL
-                setStroke(2, Color.argb(170, 255, 255, 255))
-            }
-            elevation = 14f
-            setShadowLayer(5f, 0f, 3f, Color.BLACK)
-        }
-        var downX = 0f
-        var downY = 0f
-        var startX = 0
-        var startY = 0
-        var dragged = false
-        b.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    downX = event.rawX
-                    downY = event.rawY
-                    startX = p.x
-                    startY = p.y
-                    dragged = false
-                    true
+    private fun buildNotification(): Notification {
+        val capture = PendingIntent.getService(this, 1,
+            Intent(this, ScreenReaderService::class.java).setAction(ACTION_CAPTURE),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val stop = PendingIntent.getService(this, 2,
+            Intent(this, ScreenReaderService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        return NotificationCompat.Builder(this, channel)
+            .setSmallIcon(R.drawable.ic_455_launcher)
+            .setContentTitle("455 — captura de tela ativa")
+            .setContentText("Volte ao aplicativo desejado e toque em Capturar agora.")
+            .setOngoing(true)
+            .addAction(0, "Capturar agora", capture)
+            .addAction(0, "Encerrar", stop)
+            .build().also {
+                if (Build.VERSION.SDK_INT >= 26) {
+                    val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+                    nm.createNotificationChannel(NotificationChannel(channel, "Captura do 455", NotificationManager.IMPORTANCE_LOW))
                 }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = (event.rawX - downX).toInt()
-                    val dy = (event.rawY - downY).toInt()
-                    if (kotlin.math.abs(dx) > 5 || kotlin.math.abs(dy) > 5) dragged = true
-                    if (dragged) {
-                        p.x = (startX - dx).coerceAtLeast(0)
-                        p.y = (startY + dy).coerceAtLeast(0)
-                        runCatching { wm.updateViewLayout(b, p) }
-                    }
-                    true
-                }
-                MotionEvent.ACTION_UP -> {
-                    if (!dragged) showPanel()
-                    true
-                }
-                else -> false
             }
-        }
-        wm.addView(b, p)
-        bubble = b
     }
 
-    private fun showPanel() {
-        removePanel()
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(10, 10, 10, 10)
-            background = GradientDrawable().apply {
-                setColor(Color.rgb(28, 27, 48))
-                cornerRadius = 28f
-                setStroke(1, Color.rgb(91, 82, 145))
-            }
-        }
-        box.addView(action("Selecionar área") {
-            removePanel()
-            capture { showSelector(it) }
-        })
-box.addView(action("Fechar") { removePanel() })
-        val p = WindowManager.LayoutParams(
-            270, -2, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.END; x = 16; y = 390 }
-        wm.addView(box, p)
-        panel = box
-    }
-
-    private fun action(label: String, run: () -> Unit) = Button(this).apply {
-        text = label
-        isAllCaps = false
-        textSize = 14f
-        setTextColor(Color.WHITE)
-        background = GradientDrawable().apply {
-            setColor(Color.rgb(91, 77, 190))
-            cornerRadius = 22f
-        }
-        setPadding(14, 8, 14, 8)
-        setOnClickListener { run() }
-    }
-
-    private fun removePanel() {
-        panel?.let { runCatching { wm.removeView(it) } }
-        panel = null
-    }
-
-    private fun capture(done: (Bitmap) -> Unit) {
-        if (Build.VERSION.SDK_INT < 30) {
-            sayToast("A captura exige Android 11 ou superior.")
+    private fun captureFrame() {
+        val image = try { reader?.acquireLatestImage() } catch (_: Exception) { null }
+        if (image == null) {
+            android.widget.Toast.makeText(this, "A tela ainda está sendo preparada. Tente novamente.", android.widget.Toast.LENGTH_SHORT).show()
             return
         }
-        takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
-            override fun onSuccess(result: ScreenshotResult) {
-                try {
-                    val buffer = result.hardwareBuffer
-                    val wrapped = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
-                    buffer.close()
-                    if (wrapped == null) {
-                        sayToast("Não foi possível preparar a captura.")
-                        return
-                    }
-                    val bitmap = wrapped.copy(Bitmap.Config.ARGB_8888, false)
-                    wrapped.recycle()
-                    done(bitmap)
-                } catch (e: Exception) {
-                    sayToast("Falha na captura: " + e.localizedMessage)
-                }
-            }
-            override fun onFailure(errorCode: Int) {
-                sayToast("A captura falhou. Confirme que o 455 está ativado na Acessibilidade.")
-            }
-        })
-    }
-
-    private fun showSelector(bitmap: Bitmap) {
-        val root = FrameLayout(this)
-        val frame = SelectionFrame(this, bitmap.width.toFloat(), bitmap.height.toFloat())
-        root.addView(frame, FrameLayout.LayoutParams(-1, -1))
-        val controls = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(8, 8, 8, 8)
-            setBackgroundColor(Color.rgb(25, 23, 43))
-        }
-        controls.addView(action("Traduzir") {
-            val r = frame.rect()
-            closeSelector()
-            val l = r.left.toInt().coerceIn(0, bitmap.width - 1)
-            val t = r.top.toInt().coerceIn(0, bitmap.height - 1)
-            val rr = r.right.toInt().coerceIn(l + 1, bitmap.width)
-            val bb = r.bottom.toInt().coerceIn(t + 1, bitmap.height)
-            val crop = Bitmap.createBitmap(bitmap, l, t, rr - l, bb - t)
+        try {
+            val plane = image.planes[0]
+            val buffer = plane.buffer
+            val pixelStride = plane.pixelStride
+            val rowStride = plane.rowStride
+            val rowPadding = rowStride - pixelStride * image.width
+            val wide = Bitmap.createBitmap(image.width + rowPadding / pixelStride, image.height, Bitmap.Config.ARGB_8888)
+            wide.copyPixelsFromBuffer(buffer)
+            val bitmap = Bitmap.createBitmap(wide, 0, 0, image.width, image.height)
+            wide.recycle()
+            val out = File(cacheDir, "455_capture.png")
+            FileOutputStream(out).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             bitmap.recycle()
-            readImage(crop)
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        controls.addView(action("Cancelar") {
-            closeSelector()
-            if (!bitmap.isRecycled) bitmap.recycle()
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        root.addView(controls, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
-        val p = WindowManager.LayoutParams(
-            -1, -1, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT
-        )
-        wm.addView(root, p)
-        selector = root
+            startActivity(Intent(this, CaptureActivity::class.java)
+                .putExtra(CaptureActivity.EXTRA_FILE, out.absolutePath)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(this, "Falha ao preparar a imagem: ${e.localizedMessage}", android.widget.Toast.LENGTH_LONG).show()
+        } finally { image.close() }
     }
 
-    private fun closeSelector() {
-        selector?.let { runCatching { wm.removeView(it) } }
-        selector = null
+    private fun stopProjection() {
+        display?.release(); display = null
+        reader?.close(); reader = null
+        projection?.stop(); projection = null
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
-    private class SelectionFrame(context: android.content.Context, w: Float, h: Float) : View(context) {
-        private val rect = RectF(w * .10f, h * .28f, w * .90f, h * .62f)
-        private val shade = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(165, 0, 0, 0) }
-        private val clear = Paint(Paint.ANTI_ALIAS_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR) }
-        private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(135, 120, 255); style = Paint.Style.STROKE; strokeWidth = 5f }
-        private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
-        private var px = 0f
-        private var py = 0f
-        private var resize = false
-        init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
-        override fun onDraw(c: Canvas) {
-            c.drawColor(Color.TRANSPARENT)
-            c.drawRect(0f, 0f, width.toFloat(), height.toFloat(), shade)
-            c.drawRoundRect(rect, 12f, 12f, clear)
-            c.drawRoundRect(rect, 12f, 12f, line)
-            c.drawCircle(rect.right, rect.bottom, 16f, dot)
-            val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 32f; textAlign = Paint.Align.CENTER }
-            c.drawText("Arraste para mover • canto para ajustar", width / 2f, (rect.top - 22f).coerceAtLeast(44f), p)
-        }
-        override fun onTouchEvent(e: MotionEvent): Boolean {
-            when (e.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    px = e.x; py = e.y
-                    resize = hypot((e.x - rect.right).toDouble(), (e.y - rect.bottom).toDouble()) < 72
-                    return true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = e.x - px; val dy = e.y - py
-                    if (resize) {
-                        rect.right = (rect.right + dx).coerceIn(rect.left + 100f, width.toFloat())
-                        rect.bottom = (rect.bottom + dy).coerceIn(rect.top + 90f, height.toFloat())
-                    } else {
-                        rect.offset(dx, dy)
-                        if (rect.left < 0) rect.offset(-rect.left, 0f)
-                        if (rect.top < 0) rect.offset(0f, -rect.top)
-                        if (rect.right > width) rect.offset(width - rect.right, 0f)
-                        if (rect.bottom > height) rect.offset(0f, height - rect.bottom)
-                    }
-                    px = e.x; py = e.y; invalidate(); return true
-                }
-                MotionEvent.ACTION_UP -> return true
-            }
-            return true
-        }
-        fun rect() = RectF(rect)
-    }
+    override fun onDestroy() { display?.release(); reader?.close(); projection?.stop(); super.onDestroy() }
 
-    private fun readImage(bitmap: Bitmap) {
-        val code = prefs.getString("source_language", "en") ?: "en"
-        if (!prefs.getBoolean("installed_$code", false)) {
-            bitmap.recycle()
-            sayToast("Instale primeiro o pacote do idioma escolhido.")
-            return
-        }
-        if (code == "th") {
-            readThai(bitmap)
-            return
-        }
-        val recognizer = when (code) {
-            "zh" -> TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
-            "ja" -> TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
-            "ko" -> TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
-            "hi" -> TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
-            else -> TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-        }
-        recognizer.process(InputImage.fromBitmap(bitmap, 0))
-            .addOnSuccessListener { result ->
-                recognizer.close()
-                if (result.text.isBlank()) sayToast("Não encontrei texto. Ajuste a moldura e tente novamente.")
-                else translateText(result.text, code)
-            }
-            .addOnFailureListener { error ->
-                recognizer.close()
-                bitmap.recycle()
-                sayToast("Erro no reconhecimento: " + error.localizedMessage)
-            }
-    }
-
-    private fun readThai(bitmap: Bitmap) {
-        Thread {
-            try {
-                if (!File(filesDir, "tessdata/tha.traineddata").exists()) {
-                    bitmap.recycle()
-                    sayToast("Instale o pacote de OCR tailandês na tela inicial.")
-                    return@Thread
-                }
-                val api = TessBaseAPI()
-                if (!api.init(filesDir.absolutePath, "tha")) {
-                    api.end()
-                    bitmap.recycle()
-                    sayToast("Não foi possível iniciar o OCR tailandês.")
-                    return@Thread
-                }
-                api.setImage(bitmap)
-                val text = api.getUTF8Text() ?: ""
-                api.end()
-                bitmap.recycle()
-                if (text.isBlank()) sayToast("Não encontrei texto tailandês legível.")
-                else translateText(text, "th")
-            } catch (e: Exception) {
-                if (!bitmap.isRecycled) bitmap.recycle()
-                sayToast("Erro no OCR tailandês: " + e.localizedMessage)
-            }
-        }.start()
-    }
-
-    private fun translateText(text: String, code: String) {
-        val source = TranslateLanguage.fromLanguageTag(code)
-        if (source == null) {
-            sayToast("Idioma de origem não disponível.")
-            return
-        }
-        val translator = Translation.getClient(
-            TranslatorOptions.Builder().setSourceLanguage(source)
-                .setTargetLanguage(TranslateLanguage.PORTUGUESE).build()
-        )
-        translator.translate(text)
-            .addOnSuccessListener { translated ->
-                translator.close()
-                val clean = translated.replace(Regex("[\\p{P}\\p{S}]+"), " ")
-                    .replace(Regex("\\s+"), " ").trim()
-                if (clean.isBlank()) sayToast("A tradução ficou vazia.")
-                else showTranslation(clean)
-            }
-            .addOnFailureListener { e ->
-                translator.close()
-                sayToast("Falha na tradução local: " + e.localizedMessage)
-            }
-    }
-
-
-    private fun showTranslation(translated: String) {
-        removePanel()
-        closeSelector()
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(20, 18, 20, 18)
-            background = GradientDrawable().apply {
-                setColor(Color.rgb(28, 27, 48))
-                cornerRadius = 30f
-                setStroke(1, Color.rgb(91, 82, 145))
-            }
-        }
-        content.addView(TextView(this).apply {
-            text = "Tradução"
-            textSize = 22f
-            setTextColor(Color.rgb(195, 187, 255))
-            setPadding(0, 0, 0, 12)
-        })
-        content.addView(ScrollView(this).apply {
-            addView(TextView(this@ScreenReaderService).apply {
-                text = translated
-                textSize = 18f
-                setTextColor(Color.WHITE)
-                setTextIsSelectable(true)
-                setPadding(0, 8, 0, 16)
-            })
-        }, LinearLayout.LayoutParams(-1, 0, 1f))
-        content.addView(action("Ouvir tradução") {
-            val result = tts?.speak(translated, TextToSpeech.QUEUE_FLUSH, null, "455-voice")
-            if (result != TextToSpeech.SUCCESS) sayToast("A voz do aparelho ainda está iniciando.")
-        })
-        content.addView(action("Fechar tradução") { removePanel() })
-        val params = WindowManager.LayoutParams(
-            (resources.displayMetrics.widthPixels * 0.90f).toInt(),
-            (resources.displayMetrics.heightPixels * 0.65f).toInt(),
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.CENTER }
-        wm.addView(content, params)
-        panel = content
-    }
-
-    private fun sayToast(text: String) {
-        android.os.Handler(mainLooper).post {
-            Toast.makeText(this, text, Toast.LENGTH_LONG).show()
-        }
-    }
-
-    override fun onDestroy() {
-        closeSelector()
-        removePanel()
-        bubble?.let { runCatching { wm.removeView(it) } }
-        tts?.stop()
-        tts?.shutdown()
-        super.onDestroy()
+    companion object {
+        const val EXTRA_RESULT_CODE = "result_code"
+        const val EXTRA_DATA = "projection_data"
+        const val ACTION_CAPTURE = "com.leitordetela.app.CAPTURE"
+        const val ACTION_STOP = "com.leitordetela.app.STOP"
     }
 }
