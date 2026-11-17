@@ -8,7 +8,6 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.widget.*
@@ -91,8 +90,8 @@ class MainActivity : Activity() {
 
         val accessCard = card()
         accessCard.addView(text("COMEÇAR A USAR", 12f, accent, true))
-        accessCard.addView(text("Ative o botão flutuante 455", 18f, Color.WHITE, true).apply { setPadding(0, dp(5), 0, dp(5)) })
-        accessCard.addView(text("Depois de ativar, abra o aplicativo que contém o texto e toque no botão 455 para selecionar uma área.", 14f, muted, false))
+        accessCard.addView(text("Autorize a captura de tela", 18f, Color.WHITE, true).apply { setPadding(0, dp(5), 0, dp(5)) })
+        accessCard.addView(text("Autorize a solicitação do Android. Depois abra o aplicativo desejado e use Capturar agora na notificação do 455.", 14f, muted, false))
         accessCard.addView(primaryButton("Iniciar captura de tela") { requestCapture() }, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(14) })
         page.addView(accessCard)
 
@@ -114,7 +113,7 @@ class MainActivity : Activity() {
         statusCard.addView(status)
         page.addView(statusCard)
 
-        page.addView(text("455  •  Versão 1.1.0", 11f, muted, false, Gravity.CENTER).apply {
+        page.addView(text("455  •  Versão 1.2.0", 11f, muted, false, Gravity.CENTER).apply {
             setPadding(0, dp(18), 0, 0)
         })
         setContentView(ScrollView(this).apply {
