@@ -132,7 +132,7 @@ class MainActivity : Activity() {
         statusCard.addView(status)
         page.addView(statusCard)
 
-        page.addView(text("455  •  Versão 1.2.1", 11f, muted, false, Gravity.CENTER).apply {
+        page.addView(text("455  •  Versão 1.2.2", 11f, muted, false, Gravity.CENTER).apply {
             setPadding(0, dp(18), 0, 0)
         })
         setContentView(ScrollView(this).apply {
