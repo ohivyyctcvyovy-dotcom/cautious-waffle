@@ -4,6 +4,8 @@ import android.app.Activity
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.content.Intent
+import android.provider.Settings
+import android.net.Uri
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -15,11 +17,11 @@ import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.nl.translate.*
 
 class MainActivity : Activity() {
-    data class Lang(val name: String, val code: String)
+    data class Lang(val flag: String, val name: String, val code: String)
     private val langs = listOf(
-        Lang("Inglês", "en"), Lang("Chinês", "zh"), Lang("Japonês", "ja"),
-        Lang("Coreano", "ko"), Lang("Hindi", "hi"), Lang("Tailandês", "th"),
-        Lang("Vietnamita", "vi")
+        Lang("🇬🇧", "Inglês", "en"), Lang("🇨🇳", "Chinês", "zh"), Lang("🇯🇵", "Japonês", "ja"),
+        Lang("🇰🇷", "Coreano", "ko"), Lang("🇮🇳", "Hindi", "hi"), Lang("🇹🇭", "Tailandês", "th"),
+        Lang("🇻🇳", "Vietnamita", "vi")
     )
     private lateinit var picker: Spinner
     private lateinit var status: TextView
@@ -66,7 +68,24 @@ class MainActivity : Activity() {
             setPadding(0, dp(5), 0, dp(8))
         })
         picker = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, langs.map { it.name })
+            background = rounded(Color.rgb(67, 48, 125), 14)
+            setPadding(dp(10), dp(5), dp(10), dp(5))
+            if (Build.VERSION.SDK_INT >= 16) popupBackground = rounded(Color.rgb(47, 34, 88), 14)
+            adapter = object : ArrayAdapter<Lang>(this@MainActivity, android.R.layout.simple_spinner_item, langs) {
+                private fun row(position: Int, convertView: View?, dropdown: Boolean): View {
+                    val label = (convertView as? TextView) ?: TextView(this@MainActivity)
+                    val item = langs[position]
+                    label.text = item.flag + "   " + item.name
+                    label.textSize = 16f
+                    label.setTextColor(Color.WHITE)
+                    label.gravity = Gravity.CENTER_VERTICAL
+                    label.setPadding(dp(14), dp(if (dropdown) 13 else 10), dp(14), dp(if (dropdown) 13 else 10))
+                    label.setBackgroundColor(if (dropdown) Color.rgb(47, 34, 88) else Color.rgb(67, 48, 125))
+                    return label
+                }
+                override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup) = row(position, convertView, false)
+                override fun getDropDownView(position: Int, convertView: View?, parent: android.view.ViewGroup) = row(position, convertView, true)
+            }
             setSelection(langs.indexOfFirst { it.code == (prefs.getString("source_language", "en") ?: "en") }.coerceAtLeast(0))
             onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                 override fun onNothingSelected(parent: AdapterView<*>?) = Unit
@@ -124,6 +143,11 @@ class MainActivity : Activity() {
     }
 
     private fun requestCapture() {
+        if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
+            status.text = "Autorize o botão flutuante 455 na próxima tela e depois volte ao aplicativo."
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + packageName)))
+            return
+        }
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 456)
             return
