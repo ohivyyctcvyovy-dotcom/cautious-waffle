@@ -181,9 +181,14 @@ box.addView(action("Fechar") { removePanel() })
             val t = r.top.toInt().coerceIn(0, bitmap.height - 1)
             val rr = r.right.toInt().coerceIn(l + 1, bitmap.width)
             val bb = r.bottom.toInt().coerceIn(t + 1, bitmap.height)
-            readImage(Bitmap.createBitmap(bitmap, l, t, rr - l, bb - t))
+            val crop = Bitmap.createBitmap(bitmap, l, t, rr - l, bb - t)
+            bitmap.recycle()
+            readImage(crop)
         }, LinearLayout.LayoutParams(0, -2, 1f))
-        controls.addView(action("Cancelar") { closeSelector() }, LinearLayout.LayoutParams(0, -2, 1f))
+        controls.addView(action("Cancelar") {
+            closeSelector()
+            if (!bitmap.isRecycled) bitmap.recycle()
+        }, LinearLayout.LayoutParams(0, -2, 1f))
         root.addView(controls, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
         val p = WindowManager.LayoutParams(
             -1, -1, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
