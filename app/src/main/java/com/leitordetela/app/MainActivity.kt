@@ -110,15 +110,15 @@ class MainActivity : Activity() {
         val accessCard = card()
         accessCard.addView(text("COMEÇAR A USAR", 12f, accent, true))
         accessCard.addView(text("Autorize a captura de tela", 18f, Color.WHITE, true).apply { setPadding(0, dp(5), 0, dp(5)) })
-        accessCard.addView(text("Autorize a solicitação do Android. Depois abra o aplicativo desejado e use Capturar agora na notificação do 455.", 14f, muted, false))
+        accessCard.addView(text("Autorize a captura uma vez. Depois use o botão flutuante 455 sobre o aplicativo que deseja ler.", 14f, muted, false))
         accessCard.addView(primaryButton("Iniciar captura de tela") { requestCapture() }, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(14) })
         page.addView(accessCard)
 
         val steps = card()
         steps.addView(text("PASSO A PASSO", 12f, accent, true))
-        addStep(steps, "01", "Autorize a captura", "Confirme a solicitação exibida pelo Android.")
-        addStep(steps, "02", "Capture a tela", "Abra o app desejado e use Capturar agora na notificação do 455.")
-        addStep(steps, "03", "Selecione e traduza", "Ajuste a moldura e toque em Traduzir. Depois escolha Ouvir tradução.")
+        addStep(steps, "01", "Autorize a captura", "Confirme a permissão de captura e de sobreposição do botão 455.")
+        addStep(steps, "02", "Capture a tela", "Toque no botão flutuante 455 e ajuste a região transparente.")
+        addStep(steps, "03", "Selecione e traduza", "Toque em Traduzir por voz. O 455 acompanha a região e fala quando o texto mudar.")
         page.addView(steps)
 
         val privacy = card()
@@ -174,7 +174,7 @@ class MainActivity : Activity() {
                     .putExtra(ScreenReaderService.EXTRA_RESULT_CODE, resultCode)
                     .putExtra(ScreenReaderService.EXTRA_DATA, data)
                 if (Build.VERSION.SDK_INT >= 26) startForegroundService(service) else startService(service)
-                status.text = "Captura autorizada. Abra o aplicativo desejado e use Capturar agora na notificação do 455."
+                status.text = "Captura autorizada. O botão flutuante 455 ficará disponível sobre outros aplicativos."
             } else status.text = "A captura não foi autorizada."
         }
     }
