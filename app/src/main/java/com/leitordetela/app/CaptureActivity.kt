@@ -51,37 +51,93 @@ class CaptureActivity : Activity(), TextToSpeech.OnInitListener {
         setOnClickListener { action() }
     }
     private inner class SelectionView : View(this) {
-        private val rect=RectF(.08f,.28f,.92f,.65f)
-        private var x0=0f; private var y0=0f; private var resizing=false
-        override fun onDraw(c:Canvas) {
-            val scale=minOf(width.toFloat()/bitmap.width,height.toFloat()/bitmap.height)
-            val left=(width-bitmap.width*scale)/2; val top=(height-bitmap.height*scale)/2
-            c.drawColor(Color.BLACK)
-            c.drawBitmap(bitmap,null,RectF(left,top,left+bitmap.width*scale,top+bitmap.height*scale),null)
-            val r=RectF(left+rect.left*bitmap.width*scale,top+rect.top*bitmap.height*scale,left+rect.right*bitmap.width*scale,top+rect.bottom*bitmap.height*scale)
-            c.drawColor(Color.TRANSPARENT)
-            val shade=Paint().apply { color=0x99000000.toInt() }
-            c.drawRect(0f,0f,width.toFloat(),height.toFloat(),shade)
-            val clear=Paint().apply { xfermode=PorterDuffXfermode(PorterDuff.Mode.CLEAR) }
-            c.drawRect(r,clear)
-            c.drawRect(r,Paint(3).apply { color=0xff9b8cff.toInt(); style=Paint.Style.STROKE; strokeWidth=5f })
-            c.drawCircle(r.right,r.bottom,18f,Paint().apply { color=Color.WHITE })
+        private val rect = RectF(.08f, .20f, .92f, .72f)
+        private val imageBounds = RectF()
+        private var lastX = 0f
+        private var lastY = 0f
+        private var resizing = false
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            canvas.drawColor(Color.BLACK)
+            val scale = minOf(width.toFloat() / bitmap.width, height.toFloat() / bitmap.height)
+            val imageWidth = bitmap.width * scale
+            val imageHeight = bitmap.height * scale
+            val left = (width - imageWidth) / 2f
+            val top = (height - imageHeight) / 2f
+            imageBounds.set(left, top, left + imageWidth, top + imageHeight)
+            canvas.drawBitmap(bitmap, null, imageBounds, null)
+
+            val selected = RectF(
+                imageBounds.left + rect.left * imageBounds.width(),
+                imageBounds.top + rect.top * imageBounds.height(),
+                imageBounds.left + rect.right * imageBounds.width(),
+                imageBounds.top + rect.bottom * imageBounds.height()
+            )
+            val shade = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x99000000.toInt() }
+            canvas.drawRect(imageBounds.left, imageBounds.top, imageBounds.right, selected.top, shade)
+            canvas.drawRect(imageBounds.left, selected.bottom, imageBounds.right, imageBounds.bottom, shade)
+            canvas.drawRect(imageBounds.left, selected.top, selected.left, selected.bottom, shade)
+            canvas.drawRect(selected.right, selected.top, imageBounds.right, selected.bottom, shade)
+            canvas.drawRect(selected, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0xffa995ff.toInt()
+                style = Paint.Style.STROKE
+                strokeWidth = dp(3).toFloat()
+            })
+            canvas.drawCircle(selected.right, selected.bottom, dp(14).toFloat(), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
+            canvas.drawCircle(selected.right, selected.bottom, dp(6).toFloat(), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xff6e55d8.toInt() })
         }
-        override fun onTouchEvent(e:MotionEvent):Boolean {
-            when(e.action) {
-                MotionEvent.ACTION_DOWN -> { x0=e.x; y0=e.y; resizing=kotlin.math.abs(e.x-width*.92f)<75 && kotlin.math.abs(e.y-height*.65f)<75; return true }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx=(e.x-x0)/width; val dy=(e.y-y0)/height
-                    if(resizing) { rect.right=(rect.right+dx).coerceIn(rect.left+.08f,1f); rect.bottom=(rect.bottom+dy).coerceIn(rect.top+.08f,1f) }
-                    else { rect.offset(dx,dy); if(rect.left<0)rect.offset(-rect.left,0f); if(rect.top<0)rect.offset(0f,-rect.top); if(rect.right>1)rect.offset(1-rect.right,0f); if(rect.bottom>1)rect.offset(0f,1-rect.bottom) }
-                    x0=e.x; y0=e.y; invalidate(); return true
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    lastX = event.x
+                    lastY = event.y
+                    val handleX = imageBounds.left + rect.right * imageBounds.width()
+                    val handleY = imageBounds.top + rect.bottom * imageBounds.height()
+                    resizing = kotlin.math.hypot(event.x - handleX, event.y - handleY) < dp(36)
+                    return true
                 }
-            }; return true
+                MotionEvent.ACTION_MOVE -> {
+                    if (imageBounds.width() <= 0f || imageBounds.height() <= 0f) return true
+                    val dx = (event.x - lastX) / imageBounds.width()
+                    val dy = (event.y - lastY) / imageBounds.height()
+                    if (resizing) {
+                        rect.right = (rect.right + dx).coerceIn(rect.left + .08f, 1f)
+                        rect.bottom = (rect.bottom + dy).coerceIn(rect.top + .08f, 1f)
+                    } else {
+                        val w = rect.width()
+                        val h = rect.height()
+                        val newLeft = (rect.left + dx).coerceIn(0f, 1f - w)
+                        val newTop = (rect.top + dy).coerceIn(0f, 1f - h)
+                        rect.set(newLeft, newTop, newLeft + w, newTop + h)
+                    }
+                    lastX = event.x
+                    lastY = event.y
+                    invalidate()
+                    return true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    performClick()
+                    return true
+                }
+            }
+            return true
         }
-        fun crop():Bitmap {
-            val l=(rect.left*bitmap.width).toInt().coerceIn(0,bitmap.width-1); val t=(rect.top*bitmap.height).toInt().coerceIn(0,bitmap.height-1)
-            val r=(rect.right*bitmap.width).toInt().coerceIn(l+1,bitmap.width); val b=(rect.bottom*bitmap.height).toInt().coerceIn(t+1,bitmap.height)
-            return Bitmap.createBitmap(bitmap,l,t,r-l,b-t)
+
+        override fun performClick(): Boolean {
+            super.performClick()
+            return true
+        }
+
+        private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+        fun crop(): Bitmap {
+            val left = (rect.left * bitmap.width).toInt().coerceIn(0, bitmap.width - 1)
+            val top = (rect.top * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
+            val right = (rect.right * bitmap.width).toInt().coerceIn(left + 1, bitmap.width)
+            val bottom = (rect.bottom * bitmap.height).toInt().coerceIn(top + 1, bitmap.height)
+            return Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top)
         }
     }
     private fun translateSelection() {
