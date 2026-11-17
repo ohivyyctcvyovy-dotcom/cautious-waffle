@@ -36,6 +36,8 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
     private var bubble: TextView? = null
     private var overlay: FrameLayout? = null
     private var selection: SelectionOverlay? = null
+    // Snapshot da região ativa: a leitura continua mesmo quando a janela de seleção é fechada.
+    private var activeSelectionRect: RectF? = null
     private var backButton: TextView? = null
     private var readButton: TextView? = null
     private var backButtonParams: WindowManager.LayoutParams? = null
@@ -186,7 +188,7 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
 
     private fun showFloatingControls() {
         addMovableControl("back", "VOLTAR") { closeSelector() }
-        addMovableControl("read", if (translating) "PARAR" else "LER TELA") {
+        addMovableControl("read", if (translating) "PARAR" else "TRADUZIR") {
             if (translating) stopLiveTranslation() else startLiveTranslation()
             readButton?.text = if (translating) "PARAR" else "LER TELA"
         }
@@ -196,7 +198,10 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
         val view = TextView(this).apply {
             text = label; textSize = 13f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
-            background = GradientDrawable().apply { setColor(0xff6346bd.toInt()); cornerRadius = dp(24).toFloat(); setStroke(dp(2), Color.WHITE) }
+            background = GradientDrawable().apply {
+                val color = when (key) { "back" -> 0xffd32f2f.toInt(); "read" -> 0xff2e9d50.toInt(); else -> 0xff6346bd.toInt() }
+                setColor(color); cornerRadius = dp(24).toFloat(); setStroke(dp(2), Color.WHITE)
+            }
             elevation = dp(8).toFloat()
         }
         val prefs = getSharedPreferences("455_overlay_positions", MODE_PRIVATE)
@@ -265,7 +270,7 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun closeSelector() {
-        stopLiveTranslation()
+        // Fechar a marcação não cancela a tradução já iniciada.
         overlay?.let { try { wm?.removeView(it) } catch (_: Exception) { } }
         overlay = null; selection = null
         removeFloatingControls()
@@ -274,7 +279,8 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
 
     private fun startLiveTranslation() {
         if (projection == null || selection == null) { openSelector(); return }
-        if (selection?.selectionRect() == null) {
+        val marked = selection?.selectionRect()
+        if (marked == null) {
             Toast.makeText(this, "Toque e arraste o dedo para marcar a área de leitura.", Toast.LENGTH_LONG).show()
             return
         }
@@ -283,6 +289,7 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
             return
         }
         if (translator == null) { Toast.makeText(this, "Pacote de tradução não disponível. Instale o idioma no app.", Toast.LENGTH_LONG).show(); return }
+        activeSelectionRect = RectF(marked)
         translating = true
         lastSpoken = ""
         lastCandidate = ""
@@ -298,7 +305,7 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
         lastCandidate = ""
         stableCandidateCount = 0
         tts?.stop()
-        readButton?.text = "LER TELA"
+        readButton?.text = "TRADUZIR"
         busy.set(false)
     }
 
@@ -317,7 +324,7 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
         if (image == null) { busy.set(false); return }
         try {
             val full = imageToBitmap(image)
-            val r = selection?.selectionRect()
+            val r = activeSelectionRect?.let { RectF(it) } ?: selection?.selectionRect()
             if (r == null) { full.recycle(); busy.set(false); return }
             val left = r.left.toInt().coerceIn(0, full.width - 1)
             val top = r.top.toInt().coerceIn(0, full.height - 1)
