@@ -47,7 +47,13 @@ class ScreenReaderService : Service() {
             val height = metrics.heightPixels
             reader = ImageReader.newInstance(width, height, android.graphics.PixelFormat.RGBA_8888, 3)
             projection?.registerCallback(object : MediaProjection.Callback() {
-                override fun onStop() { stopProjection() }
+                override fun onStop() {
+                    display?.release(); display = null
+                    reader?.close(); reader = null
+                    projection = null
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
             }, Handler(Looper.getMainLooper()))
             display = projection?.createVirtualDisplay(
                 "455-screen-capture", width, height, metrics.densityDpi,
@@ -112,7 +118,9 @@ class ScreenReaderService : Service() {
     private fun stopProjection() {
         display?.release(); display = null
         reader?.close(); reader = null
-        projection?.stop(); projection = null
+        val active = projection
+        projection = null
+        active?.stop()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
