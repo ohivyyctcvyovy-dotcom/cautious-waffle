@@ -1,3 +1,3 @@
 <resources>
-    <string name="accessibility_description">Permite capturar a tela somente depois que você tocar no botão 455 e escolher Selecionar área. O serviço não lê o conteúdo das janelas.</string>
+    <string name="accessibility_description">O 455 usa a captura de tela apenas quando você toca em Selecionar área. Não lê o conteúdo das janelas nem monitora o texto da tela.</string>
 </resources>
