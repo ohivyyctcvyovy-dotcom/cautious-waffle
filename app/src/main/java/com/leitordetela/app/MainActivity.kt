@@ -13,10 +13,17 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.widget.*
-import com.google.mlkit.common.model.DownloadConditions
-import com.google.mlkit.nl.translate.*
+import io.github.yinvoker.foxlet.Foxlet
+import io.github.yinvoker.foxlet.LanguagePair
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : Activity() {
+    private val setupScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     data class Lang(val flag: String, val name: String, val code: String)
     private val langs = listOf(
         Lang("🇬🇧", "Inglês", "en"), Lang("🇨🇳", "Chinês", "zh"), Lang("🇯🇵", "Japonês", "ja"),
@@ -132,7 +139,7 @@ class MainActivity : Activity() {
         statusCard.addView(status)
         page.addView(statusCard)
 
-        page.addView(text("455  •  Versão 1.2.4", 11f, muted, false, Gravity.CENTER).apply {
+        page.addView(text("455  •  Versão 1.2.5", 11f, muted, false, Gravity.CENTER).apply {
             setPadding(0, dp(18), 0, 0)
         })
         setContentView(ScrollView(this).apply {
@@ -140,6 +147,11 @@ class MainActivity : Activity() {
             addView(page)
         })
         updateInstallButton()
+    }
+
+    override fun onDestroy() {
+        setupScope.cancel()
+        super.onDestroy()
     }
 
     private fun requestCapture() {
@@ -249,33 +261,33 @@ class MainActivity : Activity() {
 
     private fun installSelected() {
         val lang = langs[picker.selectedItemPosition]
-        val source = TranslateLanguage.fromLanguageTag(lang.code)
-        if (source == null) {
-            status.text = "Este idioma não está disponível para tradução."
-            return
-        }
+        val sourceCode = if (lang.code == "zh") "zh-Hans" else lang.code
         installButton.isEnabled = false
-        status.text = "Baixando o pacote de ${lang.name}. Mantenha a internet ligada..."
-        val translator = Translation.getClient(
-            TranslatorOptions.Builder().setSourceLanguage(source)
-                .setTargetLanguage(TranslateLanguage.PORTUGUESE).build()
-        )
-        translator.downloadModelIfNeeded(DownloadConditions.Builder().build())
-            .addOnSuccessListener {
-                translator.close()
+        status.text = "Preparando os modelos Bergamot de ${lang.name}. Mantenha a internet ligada..."
+        setupScope.launch {
+            var engine: Foxlet? = null
+            try {
+                engine = withContext(Dispatchers.IO) { Foxlet.create(applicationContext) }
+                if (sourceCode != "en") {
+                    status.text = "Baixando o modelo ${lang.name} para inglês..."
+                    withContext(Dispatchers.IO) { engine.models.prepare(LanguagePair(sourceCode, "en")) }
+                }
+                status.text = "Baixando o modelo inglês para português..."
+                withContext(Dispatchers.IO) { engine.models.prepare(LanguagePair("en", "pt")) }
+                prefs.edit().putBoolean("installed_${lang.code}", true).apply()
                 if (lang.code == "th") downloadThaiModel()
                 else {
-                    prefs.edit().putBoolean("installed_${lang.code}", true).apply()
-                    status.text = "Pacote de ${lang.name} instalado. A tradução será processada localmente."
+                    status.text = "Modelos Bergamot de ${lang.name} instalados. Tradução local pronta."
                     installButton.isEnabled = true
                     updateInstallButton()
                 }
-            }
-            .addOnFailureListener { e ->
-                translator.close()
-                status.text = "Não foi possível baixar o pacote: ${e.localizedMessage ?: "erro desconhecido"}"
+            } catch (e: Exception) {
+                status.text = "Falha ao preparar os modelos: ${e.localizedMessage ?: "erro desconhecido"}"
                 installButton.isEnabled = true
+            } finally {
+                try { withContext(Dispatchers.IO) { engine?.shutdown() } } catch (_: Exception) { }
             }
+        }
     }
 
     private fun downloadThaiModel() {
