@@ -162,9 +162,19 @@ class CaptureActivity : Activity(), TextToSpeech.OnInitListener {
             "hi"->TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
             else->TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         }
-        recognizer.process(InputImage.fromBitmap(crop,0))
-            .addOnSuccessListener { result -> recognizer.close(); crop.recycle(); if(result.text.isBlank())toast("Nenhum texto encontrado.") else translate(result.text,code) }
-            .addOnFailureListener { e -> recognizer.close(); crop.recycle(); toast("Erro no OCR: ${e.localizedMessage}") }
+        val prepared = prepareOcrBitmap(crop)
+        recognizer.process(InputImage.fromBitmap(prepared,0))
+            .addOnSuccessListener { result ->
+                recognizer.close()
+                prepared.recycle()
+                val recognized = normalizeRecognizedText(result.text)
+                if(recognized.isBlank()) toast("Nenhum texto encontrado.") else translate(recognized,code)
+            }
+            .addOnFailureListener { e ->
+                recognizer.close()
+                prepared.recycle()
+                toast("Erro no OCR: ${e.localizedMessage}")
+            }
     }
     private fun thai(b:Bitmap) {
         Thread {
@@ -173,10 +183,36 @@ class CaptureActivity : Activity(), TextToSpeech.OnInitListener {
                 val api=TessBaseAPI()
                 if(!api.init(filesDir.absolutePath,"tha")) { api.end(); b.recycle(); return@Thread }
                 api.setImage(b); val value=api.getUTF8Text() ?: ""; api.end(); b.recycle()
-                runOnUiThread { if(value.isBlank())toast("Nenhum texto encontrado.") else translate(value,"th") }
+                val normalized = normalizeRecognizedText(value)
+                runOnUiThread { if(normalized.isBlank())toast("Nenhum texto encontrado.") else translate(normalized,"th") }
             } catch(e:Exception) { if(!b.isRecycled)b.recycle(); runOnUiThread { toast("Falha no OCR: ${e.localizedMessage}") } }
         }.start()
     }
+    private fun prepareOcrBitmap(source: Bitmap): Bitmap {
+        val minSide = minOf(source.width, source.height).toFloat()
+        val maxSide = maxOf(source.width, source.height).toFloat()
+        val scale = minOf(2.5f, maxOf(1f, 1000f / minSide), 2600f / maxSide).coerceAtLeast(1f)
+        if (scale <= 1.01f) return source
+        val enlarged = Bitmap.createScaledBitmap(
+            source,
+            (source.width * scale).toInt().coerceAtLeast(1),
+            (source.height * scale).toInt().coerceAtLeast(1),
+            true
+        )
+        if (enlarged !== source) source.recycle()
+        return enlarged
+    }
+
+    private fun normalizeRecognizedText(value: String): String {
+        return value
+            .replace('\u00ad', ' ')
+            .replace(Regex("(?<=\\p{L})-\\s*\\n\\s*(?=\\p{L})"), "")
+            .replace(Regex("[\\t\\u00A0]+"), " ")
+            .replace(Regex(" *\\n *"), "\\n")
+            .replace(Regex("\\n{3,}"), "\\n\\n")
+            .trim()
+    }
+
     private fun translate(value:String,code:String) {
         val source = when (code.lowercase().substringBefore("-")) {
             "zh" -> "zh-Hans"
