@@ -16,10 +16,19 @@ import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
-import com.google.mlkit.nl.translate.*
 import com.googlecode.tesseract.android.TessBaseAPI
 import java.io.File
 import java.util.Locale
+import io.github.yinvoker.foxlet.Foxlet
+import io.github.yinvoker.foxlet.LanguagePair
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class CaptureActivity : Activity(), TextToSpeech.OnInitListener {
     companion object { const val EXTRA_FILE = "capture_file" }
@@ -27,6 +36,7 @@ class CaptureActivity : Activity(), TextToSpeech.OnInitListener {
     private lateinit var selection: SelectionView
     private lateinit var root: LinearLayout
     private var tts: TextToSpeech? = null
+    private val translationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val prefs by lazy { getSharedPreferences("455", MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -168,15 +178,53 @@ class CaptureActivity : Activity(), TextToSpeech.OnInitListener {
         }.start()
     }
     private fun translate(value:String,code:String) {
-        val src=TranslateLanguage.fromLanguageTag(code) ?: return
-        val client=Translation.getClient(TranslatorOptions.Builder().setSourceLanguage(src).setTargetLanguage(TranslateLanguage.PORTUGUESE).build())
-        client.translate(value).addOnSuccessListener { result ->
-            client.close()
-            val clean=result.replace(Regex("[\\p{P}\\p{S}\\p{N}]+")," ").replace(Regex("\\s+")," ").trim()
-            if(clean.isBlank()) { toast("A tradução ficou vazia."); return@addOnSuccessListener }
-            showTranslation(clean)
-        }.addOnFailureListener { e -> client.close(); toast("Falha na tradução: ${e.localizedMessage}") }
+        val source = when (code.lowercase().substringBefore("-")) {
+            "zh" -> "zh-Hans"
+            "en" -> "en"
+            "ja" -> "ja"
+            "ko" -> "ko"
+            "hi" -> "hi"
+            "th" -> "th"
+            "vi" -> "vi"
+            else -> code
+        }
+        translationScope.launch {
+            var engine: Foxlet? = null
+            try {
+                Toast.makeText(this@CaptureActivity, "Traduzindo localmente...", Toast.LENGTH_SHORT).show()
+                val client = withContext(Dispatchers.IO) { Foxlet.create(applicationContext) }
+                engine = client
+                val portugueseModel = withContext(Dispatchers.IO) {
+                    client.models.prepare(LanguagePair("en", "pt"))
+                }
+                val translated = if (source == "en") {
+                    withContext(Dispatchers.IO) { client.translator.translate(value, portugueseModel) }
+                } else if (source in setOf("zh-Hans", "ja", "ko", "hi", "th", "vi")) {
+                    val sourceModel = withContext(Dispatchers.IO) {
+                        client.models.prepare(LanguagePair(source, "en"))
+                    }
+                    withContext(Dispatchers.IO) {
+                        client.translator.translatePivot(value, sourceModel, portugueseModel)
+                    }
+                } else {
+                    throw IllegalArgumentException("Idioma não compatível com o tradutor local.")
+                }
+                val clean = translated.replace(Regex("[\\p{P}\\p{S}\\p{N}]+"), " ")
+                    .replace(Regex("\\s+"), " ").trim()
+                if (clean.isBlank()) toast("A tradução ficou vazia.")
+                else showTranslation(clean)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (!isFinishing && !isDestroyed) toast("Falha na tradução local: ${e.localizedMessage ?: "erro desconhecido"}")
+            } finally {
+                try {
+                    withContext(NonCancellable + Dispatchers.IO) { engine?.shutdown() }
+                } catch (_: Exception) { }
+            }
+        }
     }
+
     private fun showTranslation(value:String) {
         root.removeAllViews()
         root.addView(TextView(this).apply { text="Tradução"; textSize=24f; setTextColor(0xffc3bbff.toInt()); setPadding(20,24,20,12) })
@@ -187,6 +235,7 @@ class CaptureActivity : Activity(), TextToSpeech.OnInitListener {
     override fun onInit(status:Int) { if(status==TextToSpeech.SUCCESS) { tts?.language=Locale("pt","BR"); tts?.setSpeechRate(.94f) } }
     private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
     override fun onDestroy() {
+        translationScope.cancel()
         if (::bitmap.isInitialized && !bitmap.isRecycled) bitmap.recycle()
         tts?.stop()
         tts?.shutdown()
