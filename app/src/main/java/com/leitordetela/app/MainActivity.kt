@@ -17,6 +17,7 @@ import io.github.yinvoker.foxlet.Foxlet
 import io.github.yinvoker.foxlet.LanguagePair
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -286,7 +287,7 @@ class MainActivity : Activity() {
                 status.text = "Falha ao preparar os modelos: ${e.localizedMessage ?: "erro desconhecido"}"
                 installButton.isEnabled = true
             } finally {
-                try { withContext(Dispatchers.IO) { engine?.shutdown() } } catch (_: Exception) { }
+                try { withContext(NonCancellable + Dispatchers.IO) { engine?.shutdown() } } catch (_: Exception) { }
             }
         }
     }
