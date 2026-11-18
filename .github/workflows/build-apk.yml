@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'app/**'
+      - 'app/libs/**'
       - 'build.gradle'
       - 'settings.gradle'
       - 'gradle.properties'
@@ -28,6 +29,20 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
+      - name: Download and verify Bergamot Foxlet AAR
+        run: |
+          mkdir -p app/libs
+          curl -fL --retry 3 --retry-delay 2 \
+            https://github.com/yinvoke/foxlet-translate/releases/download/v0.5.0/foxlet-v0.5.0.aar \
+            -o app/libs/foxlet-v0.5.0.aar
+          curl -fL --retry 3 --retry-delay 2 \
+            https://github.com/yinvoke/foxlet-translate/releases/download/v0.5.0/SHA256SUMS \
+            -o /tmp/foxlet-SHA256SUMS
+          HASH="$(grep 'foxlet-v0.5.0.aar' /tmp/foxlet-SHA256SUMS | head -n 1 | awk '{print $1}')"
+          test -n "$HASH"
+          echo "$HASH  app/libs/foxlet-v0.5.0.aar" | sha256sum -c -
+          test "$(stat -c%s app/libs/foxlet-v0.5.0.aar)" -gt 2000000
+
       - name: Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -42,7 +57,7 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -v 4 "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee /tmp/455-badging.txt
-          grep -q "package: name='com.leitordetela.app.v6' versionCode='8' versionName='1.2.4'" /tmp/455-badging.txt
+          grep -q "package: name='com.leitordetela.app.v6' versionCode='9' versionName='1.2.5'" /tmp/455-badging.txt
           grep -q "launchable-activity: name='com.leitordetela.app.MainActivity'" /tmp/455-badging.txt
           grep -q "sdkVersion:'30'" /tmp/455-badging.txt
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" > /tmp/455-permissions.txt
@@ -50,13 +65,14 @@ jobs:
           ! grep -q 'canTakeScreenshot="true"' app/src/main/res/xml/accessibility_service_config.xml || exit 1
           grep -q 'FOREGROUND_SERVICE_MEDIA_PROJECTION' /tmp/455-permissions.txt
           unzip -Z1 "$APK" | grep -q '^lib/arm64-v8a/'
-          unzip -Z1 "$APK" | grep -q '^lib/armeabi-v7a/'
+          ! unzip -Z1 "$APK" | grep -q '^lib/armeabi-v7a/'
+          ! unzip -Z1 "$APK" | grep -q 'com/google/mlkit/translate/'
           ls -lh "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: 455-apk-mediaprojection-v1.2.4
+          name: 455-apk-bergamot-v1.2.5
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
