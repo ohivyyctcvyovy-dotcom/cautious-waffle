@@ -208,8 +208,8 @@ class CaptureActivity : Activity(), TextToSpeech.OnInitListener {
             .replace('\u00ad', ' ')
             .replace(Regex("(?<=\\p{L})-\\s*\\n\\s*(?=\\p{L})"), "")
             .replace(Regex("[\\t\\u00A0]+"), " ")
-            .replace(Regex(" *\\n *"), "\\n")
-            .replace(Regex("\\n{3,}"), "\\n\\n")
+            .replace(Regex(" *\\n *"), "\n")
+            .replace(Regex("\\n{3,}"), "\n\n")
             .trim()
     }
 
