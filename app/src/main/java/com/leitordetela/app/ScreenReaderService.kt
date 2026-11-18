@@ -29,6 +29,7 @@ import io.github.yinvoker.foxlet.Foxlet
 import io.github.yinvoker.foxlet.LanguagePair
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -53,6 +54,7 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
     private var recognizer: TextRecognizer? = null
     private var foxletClient: Foxlet? = null
     private val translationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var translationJob: Job? = null
     private val handler = Handler(Looper.getMainLooper())
     private val busy = AtomicBoolean(false)
     private var translating = false
@@ -296,6 +298,8 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
 
     private fun stopLiveTranslation() {
         translating = false
+        translationJob?.cancel()
+        translationJob = null
         handler.removeCallbacks(captureTask)
         tts?.stop()
         activeSelectionRect = null
@@ -405,7 +409,7 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
             return
         }
         readButton?.text = "BAIXANDO..."
-        translationScope.launch {
+        translationJob = translationScope.launch {
             try {
                 val engine = foxletClient ?: Foxlet.create(applicationContext).also { foxletClient = it }
                 val portugueseModel = engine.models.prepare(LanguagePair("en", "pt"))
