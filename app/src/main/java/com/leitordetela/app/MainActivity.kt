@@ -267,13 +267,14 @@ class MainActivity : Activity() {
         setupScope.launch {
             var engine: Foxlet? = null
             try {
-                engine = withContext(Dispatchers.IO) { Foxlet.create(applicationContext) }
+                val client = withContext(Dispatchers.IO) { Foxlet.create(applicationContext) }
+                engine = client
                 if (sourceCode != "en") {
                     status.text = "Baixando o modelo ${lang.name} para inglês..."
-                    withContext(Dispatchers.IO) { engine.models.prepare(LanguagePair(sourceCode, "en")) }
+                    withContext(Dispatchers.IO) { client.models.prepare(LanguagePair(sourceCode, "en")) }
                 }
                 status.text = "Baixando o modelo inglês para português..."
-                withContext(Dispatchers.IO) { engine.models.prepare(LanguagePair("en", "pt")) }
+                withContext(Dispatchers.IO) { client.models.prepare(LanguagePair("en", "pt")) }
                 prefs.edit().putBoolean("installed_${lang.code}", true).apply()
                 if (lang.code == "th") downloadThaiModel()
                 else {
