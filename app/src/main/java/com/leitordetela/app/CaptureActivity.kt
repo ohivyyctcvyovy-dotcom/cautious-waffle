@@ -268,7 +268,16 @@ class CaptureActivity : Activity(), TextToSpeech.OnInitListener {
         root.addView(button("Ouvir tradução") { tts?.speak(value,TextToSpeech.QUEUE_FLUSH,null,"455-tts") },LinearLayout.LayoutParams(-1,56))
         root.addView(button("Fechar tradução") { finish() },LinearLayout.LayoutParams(-1,56))
     }
-    override fun onInit(status:Int) { if(status==TextToSpeech.SUCCESS) { tts?.language=Locale("pt","BR"); tts?.setSpeechRate(.94f) } }
+    override fun onInit(status:Int) {
+        if(status==TextToSpeech.SUCCESS) {
+            val engine = tts ?: return
+            val result = engine.setLanguage(Locale("pt","BR"))
+            if(result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                engine.setLanguage(Locale("pt"))
+            }
+            engine.setSpeechRate(.94f)
+        }
+    }
     private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
     override fun onDestroy() {
         translationScope.cancel()
