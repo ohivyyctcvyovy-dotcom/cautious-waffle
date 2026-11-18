@@ -27,7 +27,7 @@ jobs:
       - name: Android SDK and platform
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
       - name: Download and verify Bergamot Foxlet AAR
         run: |
@@ -46,7 +46,7 @@ jobs:
       - name: Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '9.7.1'
 
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
@@ -54,7 +54,7 @@ jobs:
       - name: Verify APK signature, alignment, package and supported ABIs
         run: |
           APK="app/build/outputs/apk/debug/app-debug.apk"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -v 4 "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee /tmp/455-badging.txt
           grep -q "package: name='com.leitordetela.app.v6' versionCode='9' versionName='1.2.5'" /tmp/455-badging.txt
