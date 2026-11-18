@@ -118,7 +118,7 @@ class MainActivity : Activity() {
         steps.addView(text("PASSO A PASSO", 12f, accent, true))
         addStep(steps, "01", "Autorize a captura", "Confirme a permissão de captura e de sobreposição do botão 455.")
         addStep(steps, "02", "Capture a tela", "Toque no botão flutuante 455 e ajuste a região transparente.")
-        addStep(steps, "03", "Selecione e traduza", "Toque em Traduzir por voz. O 455 acompanha a região e fala quando o texto mudar.")
+        addStep(steps, "03", "Selecione e traduza", "Toque em TRADUÇÃO uma vez. O 455 lê somente a área marcada e para ao terminar.")
         page.addView(steps)
 
         val privacy = card()
@@ -132,7 +132,7 @@ class MainActivity : Activity() {
         statusCard.addView(status)
         page.addView(statusCard)
 
-        page.addView(text("455  •  Versão 1.2.3", 11f, muted, false, Gravity.CENTER).apply {
+        page.addView(text("455  •  Versão 1.2.4", 11f, muted, false, Gravity.CENTER).apply {
             setPadding(0, dp(18), 0, 0)
         })
         setContentView(ScrollView(this).apply {
