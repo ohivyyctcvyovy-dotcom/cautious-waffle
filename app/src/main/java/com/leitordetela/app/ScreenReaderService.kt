@@ -23,10 +23,16 @@ import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
-import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.nl.languageid.LanguageIdentification
-import com.google.mlkit.nl.translate.*
 import java.util.Locale
+import io.github.yinvoker.foxlet.Foxlet
+import io.github.yinvoker.foxlet.LanguagePair
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 
 class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
@@ -45,7 +51,8 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
     private var readButtonParams: WindowManager.LayoutParams? = null
     private var tts: TextToSpeech? = null
     private var recognizer: TextRecognizer? = null
-    private var translator: Translator? = null
+    private var foxletClient: Foxlet? = null
+    private val translationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val handler = Handler(Looper.getMainLooper())
     private val busy = AtomicBoolean(false)
     private var translating = false
@@ -87,10 +94,6 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
                 "th" -> null
                 else -> TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
             }
-            val src = TranslateLanguage.fromLanguageTag(selectedLanguage)
-            if (src != null) translator = Translation.getClient(
-                TranslatorOptions.Builder().setSourceLanguage(src).setTargetLanguage(TranslateLanguage.PORTUGUESE).build()
-            )
             val metrics = resources.displayMetrics
             screenW = metrics.widthPixels
             screenH = metrics.heightPixels
@@ -373,49 +376,61 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
             .addOnSuccessListener { detected ->
                 identifier.close()
                 if (!translating) return@addOnSuccessListener
-                val supported = detected != "und" && TranslateLanguage.fromLanguageTag(detected) != null
-                translateOneShot(raw, if (supported) detected else selectedLanguage)
+                val normalized = normalizeFoxletLanguage(detected)
+                val supported = normalized in setOf("en", "zh-Hans", "ja", "ko", "hi", "th", "vi")
+                translateOneShot(raw, if (supported) normalized else normalizeFoxletLanguage(selectedLanguage))
             }
             .addOnFailureListener {
                 identifier.close()
-                if (translating) translateOneShot(raw, selectedLanguage)
+                if (translating) translateOneShot(raw, normalizeFoxletLanguage(selectedLanguage))
             }
+    }
+
+    private fun normalizeFoxletLanguage(code: String): String = when (code.lowercase().substringBefore("-")) {
+        "zh" -> "zh-Hans"
+        "en" -> "en"
+        "ja" -> "ja"
+        "ko" -> "ko"
+        "hi" -> "hi"
+        "th" -> "th"
+        "vi" -> "vi"
+        else -> code
     }
 
     private fun translateOneShot(raw: String, sourceCode: String) {
         if (!translating) return
         if (sourceCode == "pt") { speakOnce(raw); return }
-        val source = TranslateLanguage.fromLanguageTag(sourceCode)
-        if (source == null) {
-            finishOneShot("Não consegui identificar um idioma compatível. Confira o idioma escolhido no aplicativo.")
+        if (sourceCode !in setOf("en", "zh-Hans", "ja", "ko", "hi", "th", "vi")) {
+            finishOneShot("Idioma não compatível. Confira o idioma escolhido no aplicativo.")
             return
         }
-        val client = Translation.getClient(
-            TranslatorOptions.Builder().setSourceLanguage(source)
-                .setTargetLanguage(TranslateLanguage.PORTUGUESE).build()
-        )
-        translator?.close()
-        translator = client
         readButton?.text = "BAIXANDO..."
-        client.downloadModelIfNeeded(DownloadConditions.Builder().build())
-            .addOnSuccessListener {
-                if (!translating) { client.close(); return@addOnSuccessListener }
-                readButton?.text = "TRADUZINDO..."
-                client.translate(raw)
-                    .addOnSuccessListener { translated ->
-                        if (!translating) return@addOnSuccessListener
-                        val spoken = translated.replace(Regex("[\\p{P}\\p{S}\\p{N}]+"), " ")
-                            .replace(Regex("\\s+"), " ").trim()
-                        if (spoken.length < 2) finishOneShot("A tradução não retornou uma frase legível.")
-                        else speakOnce(spoken)
-                    }
-                    .addOnFailureListener {
-                        finishOneShot("Falha na tradução. Verifique a internet e o pacote do idioma.")
-                    }
+        translationScope.launch {
+            try {
+                val engine = foxletClient ?: Foxlet.create(applicationContext).also { foxletClient = it }
+                val portugueseModel = engine.models.prepare(LanguagePair("en", "pt"))
+                val translated = if (sourceCode == "en") {
+                    engine.translator.translate(raw, portugueseModel)
+                } else {
+                    val sourceModel = engine.models.prepare(LanguagePair(sourceCode, "en"))
+                    if (!translating) return@launch
+                    readButton?.post { if (translating) readButton?.text = "TRADUZINDO..." }
+                    engine.translator.translatePivot(raw, sourceModel, portugueseModel)
+                }
+                if (!translating) return@launch
+                val spoken = translated.replace(Regex("[\\p{P}\\p{S}\\p{N}]+"), " ")
+                    .replace(Regex("\\s+"), " ").trim()
+                withContext(Dispatchers.Main) {
+                    if (!translating) return@withContext
+                    if (spoken.length < 2) finishOneShot("A tradução não retornou uma frase legível.")
+                    else speakOnce(spoken)
+                }
+            } catch (_: Exception) {
+                withContext(Dispatchers.Main) {
+                    if (translating) finishOneShot("Falha ao traduzir. Verifique a conexão para baixar os modelos ou tente novamente.")
+                }
             }
-            .addOnFailureListener {
-                finishOneShot("Não foi possível baixar o modelo desse idioma. Verifique a internet.")
-            }
+        }
     }
 
     private fun speakOnce(text: String) {
@@ -569,7 +584,6 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
         reader?.close(); reader=null
         val active=projection; projection=null; active?.stop()
         recognizer?.close(); recognizer=null
-        translator?.close(); translator=null
         tts?.stop()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -579,7 +593,12 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
     override fun onDestroy() {
         stopLiveTranslation(); closeOverlayOnly(); removeBubble()
         display?.release(); reader?.close(); projection?.stop()
-        recognizer?.close(); translator?.close(); tts?.shutdown()
+        recognizer?.close()
+        val engine = foxletClient
+        foxletClient = null
+        CoroutineScope(Dispatchers.IO).launch { try { engine?.shutdown() } catch (_: Exception) { } }
+        translationScope.cancel()
+        tts?.shutdown()
         super.onDestroy()
     }
     companion object {
