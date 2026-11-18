@@ -23,6 +23,8 @@ import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
+import com.googlecode.tesseract.android.TessBaseAPI
+import java.io.File
 import java.util.Locale
 import io.github.yinvoker.foxlet.Foxlet
 import io.github.yinvoker.foxlet.LanguagePair
@@ -350,6 +352,46 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
                 crop = enlarged
             }
             val client = recognizer
+            if (client == null && selectedLanguage == "th") {
+                // O ML Kit não oferece OCR tailandês neste fluxo; usa o Tesseract
+                // já instalado pelo pacote de idioma, sem enviar a captura à internet.
+                translationScope.launch {
+                    val recognized = try {
+                        withContext(Dispatchers.IO) {
+                            if (!File(filesDir, "tessdata/tha.traineddata").exists()) {
+                                throw IllegalStateException("Instale o OCR tailandês na tela inicial.")
+                            }
+                            val api = TessBaseAPI()
+                            try {
+                                if (!api.init(filesDir.absolutePath, "tha")) {
+                                    throw IllegalStateException("Não foi possível iniciar o OCR tailandês.")
+                                }
+                                api.setImage(crop)
+                                api.getUTF8Text() ?: ""
+                            } finally {
+                                api.end()
+                                if (!crop.isRecycled) crop.recycle()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        if (!crop.isRecycled) crop.recycle()
+                        withContext(Dispatchers.Main) {
+                            if (translating) finishOneShot(e.localizedMessage ?: "Falha no OCR tailandês.")
+                        }
+                        return@launch
+                    }
+                    withContext(Dispatchers.Main) {
+                        if (!translating) return@withContext
+                        val clean = normalizeRecognizedText(recognized)
+                        if (clean.count { it.isLetterOrDigit() } < 2) {
+                            finishOneShot("Não encontrei texto legível dentro da área marcada.")
+                        } else {
+                            translateOneShot(clean, "th")
+                        }
+                    }
+                }
+                return
+            }
             if (client == null) {
                 crop.recycle()
                 finishOneShot("O reconhecedor desse idioma não está disponível.")
