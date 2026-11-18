@@ -24,6 +24,7 @@ import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.google.mlkit.common.model.DownloadConditions
+import com.google.mlkit.nl.languageid.LanguageIdentification
 import com.google.mlkit.nl.translate.*
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
@@ -48,9 +49,7 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
     private val handler = Handler(Looper.getMainLooper())
     private val busy = AtomicBoolean(false)
     private var translating = false
-    private var lastSpoken = ""
-    private var lastCandidate = ""
-    private var stableCandidateCount = 0
+    private var captureAttempts = 0
     private var selectedLanguage = "en"
     private var screenW = 0
     private var screenH = 0
@@ -188,10 +187,7 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
 
     private fun showFloatingControls() {
         addMovableControl("back", "VOLTAR") { closeSelector() }
-        addMovableControl("read", if (translating) "PARAR" else "TRADUZIR") {
-            if (translating) stopLiveTranslation() else startLiveTranslation()
-            readButton?.text = if (translating) "PARAR" else "LER TELA"
-        }
+        addMovableControl("read", "TRADUÇÃO") { startLiveTranslation() }
     }
 
     private fun addMovableControl(key: String, label: String, action: () -> Unit) {
@@ -278,104 +274,165 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun startLiveTranslation() {
+        if (translating) return
         if (projection == null || selection == null) { openSelector(); return }
         val marked = selection?.selectionRect()
-        if (marked == null) {
-            Toast.makeText(this, "Toque e arraste o dedo para marcar a área de leitura.", Toast.LENGTH_LONG).show()
+        if (marked == null || marked.width() < dp(20) || marked.height() < dp(20)) {
+            Toast.makeText(this, "Primeiro marque a área que deseja traduzir.", Toast.LENGTH_LONG).show()
             return
         }
-        if (selectedLanguage == "th") {
-            Toast.makeText(this, "O modo contínuo para tailandês ainda não está disponível.", Toast.LENGTH_LONG).show()
-            return
-        }
-        if (translator == null) { Toast.makeText(this, "Pacote de tradução não disponível. Instale o idioma no app.", Toast.LENGTH_LONG).show(); return }
+        // Congela a seleção no instante do toque: nenhuma outra região será consultada.
         activeSelectionRect = RectF(marked)
         translating = true
-        lastSpoken = ""
-        lastCandidate = ""
-        stableCandidateCount = 0
-        readButton?.text = "PARAR"
-        Toast.makeText(this, "Leitura por voz ativada somente na área marcada.", Toast.LENGTH_SHORT).show()
-        scheduleFrame(250)
+        captureAttempts = 0
+        busy.set(false)
+        readButton?.text = "LENDO..."
+        handler.removeCallbacks(captureTask)
+        handler.postDelayed(captureTask, 160)
     }
 
     private fun stopLiveTranslation() {
         translating = false
-        handler.removeCallbacks(frameTask)
-        lastCandidate = ""
-        stableCandidateCount = 0
+        handler.removeCallbacks(captureTask)
         tts?.stop()
-        readButton?.text = "TRADUZIR"
+        activeSelectionRect = null
         busy.set(false)
+        readButton?.text = "TRADUÇÃO"
     }
 
-    private val frameTask = object : Runnable {
-        override fun run() {
-            if (!translating) return
-            processNextFrame()
-            if (translating) handler.postDelayed(this, 1400)
-        }
+    // Uma única captura por toque; tentativas extras só aguardam o próximo quadro da tela.
+    private val captureTask = object : Runnable {
+        override fun run() { captureAndRecognizeOnce() }
     }
-    private fun scheduleFrame(delay: Long) { handler.removeCallbacks(frameTask); handler.postDelayed(frameTask, delay) }
 
-    private fun processNextFrame() {
-        if (!busy.compareAndSet(false, true)) return
+    private fun captureAndRecognizeOnce() {
+        if (!translating) return
         val image = try { reader?.acquireLatestImage() } catch (_: Exception) { null }
-        if (image == null) { busy.set(false); return }
+        if (image == null) {
+            captureAttempts++
+            if (captureAttempts <= 8) handler.postDelayed(captureTask, 120)
+            else finishOneShot("Não consegui capturar a tela. Tente tocar em TRADUÇÃO novamente.")
+            return
+        }
         try {
             val full = imageToBitmap(image)
-            val r = activeSelectionRect?.let { RectF(it) } ?: selection?.selectionRect()
-            if (r == null) { full.recycle(); busy.set(false); return }
+            val r = activeSelectionRect?.let { RectF(it) }
+            if (r == null) {
+                full.recycle()
+                finishOneShot("A área selecionada não está mais disponível.")
+                return
+            }
             val left = r.left.toInt().coerceIn(0, full.width - 1)
             val top = r.top.toInt().coerceIn(0, full.height - 1)
             val right = r.right.toInt().coerceIn(left + 1, full.width)
             val bottom = r.bottom.toInt().coerceIn(top + 1, full.height)
-            val crop = Bitmap.createBitmap(full, left, top, right-left, bottom-top)
+            var crop = Bitmap.createBitmap(full, left, top, right-left, bottom-top)
             full.recycle()
+            // Amplia letras pequenas preservando as cores originais.
+            if (crop.width < 900 && crop.height < 900) {
+                val enlarged = Bitmap.createScaledBitmap(crop, (crop.width*1.5f).toInt().coerceAtLeast(1),
+                    (crop.height*1.5f).toInt().coerceAtLeast(1), true)
+                crop.recycle()
+                crop = enlarged
+            }
             val client = recognizer
-            if (client == null) { crop.recycle(); busy.set(false); return }
+            if (client == null) {
+                crop.recycle()
+                finishOneShot("O reconhecedor desse idioma não está disponível.")
+                return
+            }
             client.process(InputImage.fromBitmap(crop, 0))
                 .addOnSuccessListener { result ->
                     crop.recycle()
-                    // Preserve OCR line breaks and block order so the translator receives context.
-                    val raw = result.textBlocks
-                        .filter { it.text.isNotBlank() }
-                        .joinToString("\\n") { block ->
-                            block.lines.joinToString("\\n") { line -> line.text.trim() }
+                    if (!translating) return@addOnSuccessListener
+                    val raw = result.textBlocks.filter { it.text.isNotBlank() }
+                        .joinToString("\n") { block ->
+                            block.lines.joinToString("\n") { line -> line.text.trim() }
                         }.trim()
-                    val candidate = raw.replace(Regex("\\s+"), " ").trim()
-                    if (candidate.length < 3) {
-                        lastCandidate = ""
-                        stableCandidateCount = 0
-                        busy.set(false)
+                    if (raw.count { it.isLetterOrDigit() } < 2) {
+                        finishOneShot("Não encontrei texto legível dentro da área marcada.")
                         return@addOnSuccessListener
                     }
-                    if (candidate == lastCandidate) stableCandidateCount++ else {
-                        lastCandidate = candidate
-                        stableCandidateCount = 1
-                    }
-                    // Wait for the same complete reading in two consecutive frames;
-                    // this avoids translating half-rendered scrolling text or transient OCR errors.
-                    if (stableCandidateCount < 2 || candidate == lastSpoken) {
-                        busy.set(false)
-                        return@addOnSuccessListener
-                    }
-                    translator?.translate(raw)?.addOnSuccessListener { translated ->
-                        val spoken = translated
-                            .replace(Regex("[\\p{P}\\p{S}\\p{N}]+"), " ")
-                            .replace(Regex("\\s+"), " ").trim()
-                        if (spoken.length >= 2 && candidate != lastSpoken) {
-                            lastSpoken = candidate
-                            if (translating && spoken.isNotBlank()) {
-                                tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "455-live")
-                            }
-                        }
-                        busy.set(false)
-                    }?.addOnFailureListener { busy.set(false) } ?: run { busy.set(false) }
+                    detectLanguageAndTranslate(raw)
                 }
-                .addOnFailureListener { crop.recycle(); busy.set(false) }
-        } catch (_: Exception) { image.close(); busy.set(false); return }
-        image.close()
+                .addOnFailureListener {
+                    crop.recycle()
+                    finishOneShot("Não consegui reconhecer as letras dessa área. Tente aumentar a seleção.")
+                }
+        } catch (_: Exception) {
+            finishOneShot("Ocorreu um erro ao ler a área selecionada.")
+        } finally {
+            image.close()
+        }
+    }
+
+    private fun detectLanguageAndTranslate(raw: String) {
+        if (!translating) return
+        val identifier = LanguageIdentification.getClient()
+        identifier.identifyLanguage(raw)
+            .addOnSuccessListener { detected ->
+                identifier.close()
+                if (!translating) return@addOnSuccessListener
+                val supported = detected != "und" && TranslateLanguage.fromLanguageTag(detected) != null
+                translateOneShot(raw, if (supported) detected else selectedLanguage)
+            }
+            .addOnFailureListener {
+                identifier.close()
+                if (translating) translateOneShot(raw, selectedLanguage)
+            }
+    }
+
+    private fun translateOneShot(raw: String, sourceCode: String) {
+        if (!translating) return
+        if (sourceCode == "pt") { speakOnce(raw); return }
+        val source = TranslateLanguage.fromLanguageTag(sourceCode)
+        if (source == null) {
+            finishOneShot("Não consegui identificar um idioma compatível. Confira o idioma escolhido no aplicativo.")
+            return
+        }
+        val client = Translation.getClient(
+            TranslatorOptions.Builder().setSourceLanguage(source)
+                .setTargetLanguage(TranslateLanguage.PORTUGUESE).build()
+        )
+        translator?.close()
+        translator = client
+        readButton?.text = "BAIXANDO..."
+        client.downloadModelIfNeeded(DownloadConditions.Builder().build())
+            .addOnSuccessListener {
+                if (!translating) { client.close(); return@addOnSuccessListener }
+                readButton?.text = "TRADUZINDO..."
+                client.translate(raw)
+                    .addOnSuccessListener { translated ->
+                        if (!translating) return@addOnSuccessListener
+                        val spoken = translated.replace(Regex("[\\p{P}\\p{S}\\p{N}]+"), " ")
+                            .replace(Regex("\\s+"), " ").trim()
+                        if (spoken.length < 2) finishOneShot("A tradução não retornou uma frase legível.")
+                        else speakOnce(spoken)
+                    }
+                    .addOnFailureListener {
+                        finishOneShot("Falha na tradução. Verifique a internet e o pacote do idioma.")
+                    }
+            }
+            .addOnFailureListener {
+                finishOneShot("Não foi possível baixar o modelo desse idioma. Verifique a internet.")
+            }
+    }
+
+    private fun speakOnce(text: String) {
+        if (!translating) return
+        val spoken = text.replace(Regex("[\\p{P}\\p{S}\\p{N}]+"), " ")
+            .replace(Regex("\\s+"), " ").trim()
+        if (spoken.isNotBlank()) tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "455-one-shot")
+        finishOneShot(null)
+    }
+
+    private fun finishOneShot(message: String?) {
+        translating = false
+        handler.removeCallbacks(captureTask)
+        activeSelectionRect = null
+        busy.set(false)
+        readButton?.text = "TRADUÇÃO"
+        if (!message.isNullOrBlank()) Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
     private fun imageToBitmap(image: Image): Bitmap {
@@ -501,7 +558,7 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
     }
 
     override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) { tts?.language = Locale("pt", "BR"); tts?.setSpeechRate(.94f) }
+        if (status == TextToSpeech.SUCCESS) { tts?.language = Locale("pt", "BR"); tts?.setSpeechRate(1.0f) }
     }
 
     private fun stopProjection() {
