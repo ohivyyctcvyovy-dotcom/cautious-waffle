@@ -623,7 +623,14 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
     }
 
     override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) { tts?.language = Locale("pt", "BR"); tts?.setSpeechRate(1.0f) }
+        if (status == TextToSpeech.SUCCESS) {
+            val engine = tts ?: return
+            val result = engine.setLanguage(Locale("pt", "BR"))
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                engine.setLanguage(Locale("pt"))
+            }
+            engine.setSpeechRate(1.0f)
+        }
     }
 
     private fun stopProjection() {
