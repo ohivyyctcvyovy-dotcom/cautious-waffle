@@ -23,7 +23,6 @@ import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
-import com.google.mlkit.nl.languageid.LanguageIdentification
 import java.util.Locale
 import io.github.yinvoker.foxlet.Foxlet
 import io.github.yinvoker.foxlet.LanguagePair
@@ -335,10 +334,18 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
             val bottom = r.bottom.toInt().coerceIn(top + 1, full.height)
             var crop = Bitmap.createBitmap(full, left, top, right-left, bottom-top)
             full.recycle()
-            // Amplia letras pequenas preservando as cores originais.
-            if (crop.width < 900 && crop.height < 900) {
-                val enlarged = Bitmap.createScaledBitmap(crop, (crop.width*1.5f).toInt().coerceAtLeast(1),
-                    (crop.height*1.5f).toInt().coerceAtLeast(1), true)
+            // Amplia a região quando as letras são pequenas. Limita o tamanho
+            // para evitar consumo excessivo de memória em aparelhos modestos.
+            val minSide = minOf(crop.width, crop.height).toFloat()
+            val maxSide = maxOf(crop.width, crop.height).toFloat()
+            val scale = minOf(2.5f, maxOf(1f, 1000f / minSide), 2600f / maxSide).coerceAtLeast(1f)
+            if (scale > 1.01f) {
+                val enlarged = Bitmap.createScaledBitmap(
+                    crop,
+                    (crop.width * scale).toInt().coerceAtLeast(1),
+                    (crop.height * scale).toInt().coerceAtLeast(1),
+                    true
+                )
                 crop.recycle()
                 crop = enlarged
             }
@@ -352,15 +359,19 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
                 .addOnSuccessListener { result ->
                     crop.recycle()
                     if (!translating) return@addOnSuccessListener
-                    val raw = result.textBlocks.filter { it.text.isNotBlank() }
-                        .joinToString("\n") { block ->
-                            block.lines.joinToString("\n") { line -> line.text.trim() }
-                        }.trim()
+                    val raw = normalizeRecognizedText(
+                        result.textBlocks.filter { it.text.isNotBlank() }
+                            .joinToString("\n") { block ->
+                                block.lines.joinToString("\n") { line -> line.text.trim() }
+                            }
+                    )
                     if (raw.count { it.isLetterOrDigit() } < 2) {
                         finishOneShot("Não encontrei texto legível dentro da área marcada.")
                         return@addOnSuccessListener
                     }
-                    detectLanguageAndTranslate(raw)
+                    // O idioma escolhido pelo usuário é a fonte de verdade.
+                    // Identificação automática costuma errar em palavras/frases curtas.
+                    translateOneShot(raw, normalizeFoxletLanguage(selectedLanguage))
                 }
                 .addOnFailureListener {
                     crop.recycle()
@@ -373,21 +384,14 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun detectLanguageAndTranslate(raw: String) {
-        if (!translating) return
-        val identifier = LanguageIdentification.getClient()
-        identifier.identifyLanguage(raw)
-            .addOnSuccessListener { detected ->
-                identifier.close()
-                if (!translating) return@addOnSuccessListener
-                val normalized = normalizeFoxletLanguage(detected)
-                val supported = normalized in setOf("en", "zh-Hans", "ja", "ko", "hi", "th", "vi")
-                translateOneShot(raw, if (supported) normalized else normalizeFoxletLanguage(selectedLanguage))
-            }
-            .addOnFailureListener {
-                identifier.close()
-                if (translating) translateOneShot(raw, normalizeFoxletLanguage(selectedLanguage))
-            }
+    private fun normalizeRecognizedText(value: String): String {
+        return value
+            .replace('\u00ad', ' ')
+            .replace(Regex("(?<=\\p{L})-\\s*\\n\\s*(?=\\p{L})"), "")
+            .replace(Regex("[\\t\\u00A0]+"), " ")
+            .replace(Regex(" *\\n *"), "\\n")
+            .replace(Regex("\\n{3,}"), "\\n\\n")
+            .trim()
     }
 
     private fun normalizeFoxletLanguage(code: String): String = when (code.lowercase().substringBefore("-")) {
