@@ -1,3 +1,15 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        // Foxlet 0.5.0 API classes use Kotlin metadata 2.4.0.
+        // AGP 9 built-in Kotlin support uses this compiler classpath.
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.10'
+    }
+}
+
 plugins {
     id 'com.android.application' version '9.3.1' apply false
 }
