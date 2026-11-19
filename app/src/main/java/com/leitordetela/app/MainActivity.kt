@@ -104,6 +104,7 @@ class MainActivity : Activity() {
             }
         }
         languageCard.addView(picker)
+        languageCard.addView(text("Inglês americano e britânico usam o mesmo modelo de tradução para português; a diferença é a variante selecionada.", 12f, muted, false).apply { setPadding(dp(2), dp(8), dp(2), 0) })
         installButton = Button(this).apply {
             isAllCaps = false
             textSize = 14f
@@ -131,7 +132,7 @@ class MainActivity : Activity() {
 
         val privacy = card()
         privacy.addView(text("PRIVACIDADE E FUNCIONAMENTO", 12f, accent, true))
-        privacy.addView(text("O reconhecimento e a tradução são feitos no aparelho. Os pacotes de idioma precisam ser baixados antes do primeiro uso; esse download usa internet. O texto capturado não é enviado para um serviço de tradução. A leitura em voz alta usa o mecanismo de voz instalado no Android.", 13f, muted, false))
+        privacy.addView(text("O reconhecimento e a tradução são feitos no aparelho, com os modelos instalados. A internet é usada para baixar esses modelos. O texto e a imagem capturados não são enviados pelo aplicativo a uma API de tradução. A leitura em voz alta usa o mecanismo de voz do Android; algumas vozes do sistema podem usar internet.", 13f, muted, false))
         page.addView(privacy)
 
         status = text("Pronto para configurar.", 13f, Color.WHITE, false)
