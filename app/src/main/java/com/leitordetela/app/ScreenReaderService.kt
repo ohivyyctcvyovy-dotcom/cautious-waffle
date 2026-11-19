@@ -450,10 +450,10 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
     // Glossário contextual para expressões que o modelo pode traduzir literalmente.
     private fun applyEnglishGlossary(value: String): String {
         return value
-            .replace(Regex("(?i)\bI'm\s+(?:currently\s+)?lactating\b"), "I'm producing milk")
-            .replace(Regex("(?i)\bI am\s+(?:currently\s+)?lactating\b"), "I am producing milk")
-            .replace(Regex("(?i)\blactating\b"), "producing milk")
-            .replace(Regex("(?i)\blactation\b"), "milk production")
+            .replace(Regex("(?i)\\bI'm\\s+(?:currently\\s+)?lactating\\b"), "I'm producing milk")
+            .replace(Regex("(?i)\\bI am\\s+(?:currently\\s+)?lactating\\b"), "I am producing milk")
+            .replace(Regex("(?i)\\blactating\\b"), "producing milk")
+            .replace(Regex("(?i)\\blactation\\b"), "milk production")
     }
 
     private fun applyPortugueseGlossary(value: String): String {
