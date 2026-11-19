@@ -27,7 +27,7 @@ class MainActivity : Activity() {
     private val setupScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     data class Lang(val flag: String, val name: String, val code: String)
     private val langs = listOf(
-        Lang("🇬🇧", "Inglês", "en"), Lang("🇨🇳", "Chinês", "zh"), Lang("🇯🇵", "Japonês", "ja"),
+        Lang("🇺🇸", "Inglês americano", "en-US"), Lang("🇬🇧", "Inglês britânico", "en-GB"), Lang("🇨🇳", "Chinês", "zh"), Lang("🇯🇵", "Japonês", "ja"),
         Lang("🇰🇷", "Coreano", "ko"), Lang("🇮🇳", "Hindi", "hi"), Lang("🇹🇭", "Tailandês", "th"),
         Lang("🇻🇳", "Vietnamita", "vi")
     )
@@ -262,7 +262,7 @@ class MainActivity : Activity() {
 
     private fun installSelected() {
         val lang = langs[picker.selectedItemPosition]
-        val sourceCode = if (lang.code == "zh") "zh-Hans" else lang.code
+        val sourceCode = when { lang.code == "zh" -> "zh-Hans"; lang.code.startsWith("en-") -> "en"; else -> lang.code }
         installButton.isEnabled = false
         status.text = "Preparando os modelos Bergamot de ${lang.name}. Mantenha a internet ligada..."
         setupScope.launch {
