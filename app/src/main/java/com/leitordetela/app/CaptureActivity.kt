@@ -213,6 +213,21 @@ class CaptureActivity : Activity(), TextToSpeech.OnInitListener {
             .trim()
     }
 
+    private fun applyEnglishGlossary(value: String): String {
+        return value
+            .replace(Regex("(?i)\bI'm\s+(?:currently\s+)?lactating\b"), "I'm producing milk")
+            .replace(Regex("(?i)\bI am\s+(?:currently\s+)?lactating\b"), "I am producing milk")
+            .replace(Regex("(?i)\blactating\b"), "producing milk")
+            .replace(Regex("(?i)\blactation\b"), "milk production")
+    }
+
+    private fun applyPortugueseGlossary(value: String): String {
+        return value
+            .replace(Regex("(?i)\bestou\s+(?:atualmente\s+)?lactando\b"), "estou produzindo leite")
+            .replace(Regex("(?i)\bestou\s+em\s+lactação\b"), "estou produzindo leite")
+            .replace(Regex("(?i)\blactating\b"), "produzindo leite")
+    }
+
     private fun translate(value:String,code:String) {
         val source = when (code.lowercase().substringBefore("-")) {
             "zh" -> "zh-Hans"
@@ -233,19 +248,20 @@ class CaptureActivity : Activity(), TextToSpeech.OnInitListener {
                 val portugueseModel = withContext(Dispatchers.IO) {
                     client.models.prepare(LanguagePair("en", "pt"))
                 }
+                val translationInput = if (source == "en") applyEnglishGlossary(value) else value
                 val translated = if (source == "en") {
-                    withContext(Dispatchers.IO) { client.translator.translate(value, portugueseModel) }
+                    withContext(Dispatchers.IO) { client.translator.translate(translationInput, portugueseModel) }
                 } else if (source in setOf("zh-Hans", "ja", "ko", "hi", "th", "vi")) {
                     val sourceModel = withContext(Dispatchers.IO) {
                         client.models.prepare(LanguagePair(source, "en"))
                     }
                     withContext(Dispatchers.IO) {
-                        client.translator.translatePivot(value, sourceModel, portugueseModel)
+                        client.translator.translatePivot(translationInput, sourceModel, portugueseModel)
                     }
                 } else {
                     throw IllegalArgumentException("Idioma não compatível com o tradutor local.")
                 }
-                val clean = translated.replace(Regex("[\\p{P}\\p{S}\\p{N}]+"), " ")
+                val clean = applyPortugueseGlossary(translated).replace(Regex("[\\p{P}\\p{S}\\p{N}]+"), " ")
                     .replace(Regex("\\s+"), " ").trim()
                 if (clean.isBlank()) toast("A tradução ficou vazia.")
                 else showTranslation(clean)
