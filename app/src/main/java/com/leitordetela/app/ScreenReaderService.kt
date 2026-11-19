@@ -447,6 +447,22 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
         else -> code
     }
 
+    // Glossário contextual para expressões que o modelo pode traduzir literalmente.
+    private fun applyEnglishGlossary(value: String): String {
+        return value
+            .replace(Regex("(?i)\bI'm\s+(?:currently\s+)?lactating\b"), "I'm producing milk")
+            .replace(Regex("(?i)\bI am\s+(?:currently\s+)?lactating\b"), "I am producing milk")
+            .replace(Regex("(?i)\blactating\b"), "producing milk")
+            .replace(Regex("(?i)\blactation\b"), "milk production")
+    }
+
+    private fun applyPortugueseGlossary(value: String): String {
+        return value
+            .replace(Regex("(?i)\bestou\s+(?:atualmente\s+)?lactando\b"), "estou produzindo leite")
+            .replace(Regex("(?i)\bestou\s+em\s+lactação\b"), "estou produzindo leite")
+            .replace(Regex("(?i)\blactating\b"), "produzindo leite")
+    }
+
     private fun translateOneShot(raw: String, sourceCode: String) {
         if (!translating) return
         if (sourceCode == "pt") { speakOnce(raw); return }
@@ -459,16 +475,17 @@ class ScreenReaderService : Service(), TextToSpeech.OnInitListener {
             try {
                 val engine = foxletClient ?: Foxlet.create(applicationContext).also { foxletClient = it }
                 val portugueseModel = engine.models.prepare(LanguagePair("en", "pt"))
+                val translationInput = if (sourceCode == "en") applyEnglishGlossary(raw) else raw
                 val translated = if (sourceCode == "en") {
-                    engine.translator.translate(raw, portugueseModel)
+                    engine.translator.translate(translationInput, portugueseModel)
                 } else {
                     val sourceModel = engine.models.prepare(LanguagePair(sourceCode, "en"))
                     if (!translating) return@launch
                     readButton?.post { if (translating) readButton?.text = "TRADUZINDO..." }
-                    engine.translator.translatePivot(raw, sourceModel, portugueseModel)
+                    engine.translator.translatePivot(translationInput, sourceModel, portugueseModel)
                 }
                 if (!translating) return@launch
-                val spoken = translated.replace(Regex("[\\p{P}\\p{S}\\p{N}]+"), " ")
+                val spoken = applyPortugueseGlossary(translated).replace(Regex("[\\p{P}\\p{S}\\p{N}]+"), " ")
                     .replace(Regex("\\s+"), " ").trim()
                 withContext(Dispatchers.Main) {
                     if (!translating) return@withContext
