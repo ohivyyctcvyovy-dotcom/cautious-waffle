@@ -223,9 +223,9 @@ class CaptureActivity : Activity(), TextToSpeech.OnInitListener {
 
     private fun applyPortugueseGlossary(value: String): String {
         return value
-            .replace(Regex("(?i)\bestou\s+(?:atualmente\s+)?lactando\b"), "estou produzindo leite")
-            .replace(Regex("(?i)\bestou\s+em\s+lactação\b"), "estou produzindo leite")
-            .replace(Regex("(?i)\blactating\b"), "produzindo leite")
+            .replace(Regex("(?i)\\bestou\\s+(?:atualmente\\s+)?lactando\\b"), "estou produzindo leite")
+            .replace(Regex("(?i)\\bestou\\s+em\\s+lactação\\b"), "estou produzindo leite")
+            .replace(Regex("(?i)\\blactating\\b"), "produzindo leite")
     }
 
     private fun translate(value:String,code:String) {
