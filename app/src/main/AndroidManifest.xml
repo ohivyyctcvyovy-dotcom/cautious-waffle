@@ -6,7 +6,7 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <application
         android:allowBackup="false"
-        android:icon="@drawable/ic_455_launcher"
+        android:icon="@drawable/logo_455"
         android:label="455 — Leitor de Tela"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">

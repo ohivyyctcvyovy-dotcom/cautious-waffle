@@ -55,14 +55,13 @@ class MainActivity : Activity() {
             setPadding(dp(22), dp(24), dp(22), dp(30))
             setBackgroundColor(bg)
         }
-        page.addView(TextView(this).apply {
-            text = "455"
-            textSize = 34f
-            typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
+        page.addView(ImageView(this).apply {
+            setImageResource(R.drawable.logo_455)
+            contentDescription = "Logo japonês do tradutor 455"
+            scaleType = ImageView.ScaleType.CENTER_CROP
             background = rounded(violet, 22)
-            layoutParams = LinearLayout.LayoutParams(dp(76), dp(76)).apply {
+            clipToOutline = true
+            layoutParams = LinearLayout.LayoutParams(dp(112), dp(112)).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
                 bottomMargin = dp(12)
             }
