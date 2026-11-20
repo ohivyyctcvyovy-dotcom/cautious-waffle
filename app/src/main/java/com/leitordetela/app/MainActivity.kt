@@ -152,7 +152,7 @@ class MainActivity : Activity() {
         statusCard.addView(progressLabel)
         page.addView(statusCard)
 
-        page.addView(text("455  •  Versão 1.2.5", 11f, muted, false, Gravity.CENTER).apply {
+        page.addView(text("455  •  Versão 1.2.8", 11f, muted, false, Gravity.CENTER).apply {
             setPadding(0, dp(18), 0, 0)
         })
         setContentView(ScrollView(this).apply {
