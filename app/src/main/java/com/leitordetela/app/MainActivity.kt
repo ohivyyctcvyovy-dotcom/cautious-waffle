@@ -36,10 +36,13 @@ class MainActivity : Activity() {
     private lateinit var installButton: Button
     private val projectionRequest = 455
     private val prefs by lazy { getSharedPreferences("455", MODE_PRIVATE) }
-    private val bg = Color.rgb(15, 16, 29)
-    private val card = Color.rgb(27, 29, 49)
-    private val accent = Color.rgb(139, 124, 255)
-    private val muted = Color.rgb(174, 177, 199)
+    // Japanese-inspired neon palette: midnight black, electric blue, sakura red and violet.
+    private val bg = Color.rgb(9, 8, 18)
+    private val card = Color.rgb(23, 19, 38)
+    private val accent = Color.rgb(57, 189, 248)
+    private val redAccent = Color.rgb(255, 77, 109)
+    private val violet = Color.rgb(155, 92, 255)
+    private val muted = Color.rgb(177, 174, 205)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,7 +61,7 @@ class MainActivity : Activity() {
             typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-            background = rounded(accent, 22)
+            background = rounded(violet, 22)
             layoutParams = LinearLayout.LayoutParams(dp(76), dp(76)).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
                 bottomMargin = dp(12)
@@ -76,9 +79,9 @@ class MainActivity : Activity() {
             setPadding(0, dp(5), 0, dp(8))
         })
         picker = Spinner(this).apply {
-            background = rounded(Color.rgb(67, 48, 125), 14)
+            background = rounded(Color.rgb(55, 37, 91), 14)
             setPadding(dp(10), dp(5), dp(10), dp(5))
-            if (Build.VERSION.SDK_INT >= 16) setPopupBackgroundDrawable(rounded(Color.rgb(47, 34, 88), 14))
+            if (Build.VERSION.SDK_INT >= 16) setPopupBackgroundDrawable(rounded(Color.rgb(35, 24, 59), 14))
             adapter = object : ArrayAdapter<Lang>(this@MainActivity, android.R.layout.simple_spinner_item, langs) {
                 private fun row(position: Int, convertView: View?, dropdown: Boolean): View {
                     val label = (convertView as? TextView) ?: TextView(this@MainActivity)
@@ -88,7 +91,7 @@ class MainActivity : Activity() {
                     label.setTextColor(Color.WHITE)
                     label.gravity = Gravity.CENTER_VERTICAL
                     label.setPadding(dp(14), dp(if (dropdown) 13 else 10), dp(14), dp(if (dropdown) 13 else 10))
-                    label.setBackgroundColor(if (dropdown) Color.rgb(47, 34, 88) else Color.rgb(67, 48, 125))
+                    label.setBackgroundColor(if (dropdown) Color.rgb(35, 24, 59) else Color.rgb(55, 37, 91))
                     return label
                 }
                 override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup) = row(position, convertView, false)
@@ -205,7 +208,7 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            background = rounded(Color.rgb(54, 49, 91), 12)
+            background = rounded(redAccent, 12)
         }, LinearLayout.LayoutParams(dp(42), dp(42)))
         val copy = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
