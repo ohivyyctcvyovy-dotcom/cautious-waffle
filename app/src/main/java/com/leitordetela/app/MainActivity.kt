@@ -34,6 +34,8 @@ class MainActivity : Activity() {
     private lateinit var picker: Spinner
     private lateinit var status: TextView
     private lateinit var installButton: Button
+    private lateinit var progressRing: CircularProgressView
+    private lateinit var progressLabel: TextView
     private val projectionRequest = 455
     private val prefs by lazy { getSharedPreferences("455", MODE_PRIVATE) }
     // Japanese-inspired neon palette: midnight black, electric blue, sakura red and violet.
@@ -141,6 +143,13 @@ class MainActivity : Activity() {
         val statusCard = card()
         statusCard.addView(text("STATUS", 12f, accent, true))
         statusCard.addView(status)
+        progressRing = CircularProgressView(this).apply { visibility = View.GONE }
+        statusCard.addView(progressRing, LinearLayout.LayoutParams(dp(82), dp(82)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            topMargin = dp(12)
+        })
+        progressLabel = text("", 12f, accent, true, Gravity.CENTER)
+        statusCard.addView(progressLabel)
         page.addView(statusCard)
 
         page.addView(text("455  •  Versão 1.2.5", 11f, muted, false, Gravity.CENTER).apply {
@@ -259,66 +268,158 @@ class MainActivity : Activity() {
         installButton.text = if (prefs.getBoolean("installed_${lang.code}", false)) {
             "Pacote instalado  ·  Baixar novamente"
         } else {
-            "Baixar pacote de ${lang.name}"
+            "Instalar idioma de ${lang.name}"
+        }
+    }
+
+    private suspend fun prepareModelWithProgress(
+        client: Foxlet,
+        pair: LanguagePair,
+        offset: Int,
+        span: Int,
+        label: String
+    ) {
+        withContext(Dispatchers.IO) {
+            client.models.prepare(pair) { progress ->
+                val stage = progress.stage.toString()
+                val downloaded = progress.downloadedBytes.toString().toLongOrNull() ?: 0L
+                val total = progress.totalBytes.toString().toLongOrNull() ?: 0L
+                val fraction = when {
+                    stage.contains("Ready", ignoreCase = true) -> 1.0
+                    total > 0L -> (downloaded.toDouble() / total.toDouble()).coerceIn(0.0, 1.0)
+                    else -> 0.0
+                }
+                val overall = (offset + (fraction * span).toInt()).coerceIn(0, 100)
+                runOnUiThread {
+                    if (!isFinishing && ::progressRing.isInitialized) {
+                        progressRing.progress = overall
+                        progressLabel.text = "$label · $overall%"
+                        status.text = when {
+                            stage.contains("Verifying", true) -> "Verificando os arquivos do modelo..."
+                            stage.contains("Ready", true) -> "$label concluído."
+                            else -> "Baixando $label..."
+                        }
+                    }
+                }
+            }
         }
     }
 
     private fun installSelected() {
         val lang = langs[picker.selectedItemPosition]
-        val sourceCode = when { lang.code == "zh" -> "zh-Hans"; lang.code.startsWith("en-") -> "en"; else -> lang.code }
+        val sourceCode = when {
+            lang.code == "zh" -> "zh-Hans"
+            lang.code.startsWith("en-") -> "en"
+            else -> lang.code
+        }
         installButton.isEnabled = false
-        status.text = "Preparando os modelos Bergamot de ${lang.name}. Mantenha a internet ligada..."
+        progressRing.visibility = View.VISIBLE
+        progressRing.progress = 0
+        progressLabel.text = "Iniciando · 0%"
+        status.text = "Preparando os modelos de ${lang.name}. Mantenha a internet ligada."
         setupScope.launch {
             var engine: Foxlet? = null
             try {
-                val client = withContext(Dispatchers.IO) { Foxlet.create(applicationContext) }
+                val client = Foxlet.create(applicationContext)
                 engine = client
-                if (sourceCode != "en") {
-                    status.text = "Baixando o modelo ${lang.name} para inglês..."
-                    withContext(Dispatchers.IO) { client.models.prepare(LanguagePair(sourceCode, "en")) }
+                if (sourceCode == "en") {
+                    prepareModelWithProgress(client, LanguagePair("en", "pt"), 0, 100, "Inglês para português")
+                } else {
+                    val sourceSpan = if (sourceCode == "th") 40 else 50
+                    val targetOffset = sourceSpan
+                    val targetSpan = if (sourceCode == "th") 40 else 50
+                    prepareModelWithProgress(client, LanguagePair(sourceCode, "en"), 0, sourceSpan, "${lang.name} para inglês")
+                    prepareModelWithProgress(client, LanguagePair("en", "pt"), targetOffset, targetSpan, "Inglês para português")
                 }
-                status.text = "Baixando o modelo inglês para português..."
-                withContext(Dispatchers.IO) { client.models.prepare(LanguagePair("en", "pt")) }
+                if (sourceCode == "th") {
+                    downloadThaiModel(if (sourceCode == "th") 80 else 100, if (sourceCode == "th") 20 else 0)
+                }
                 prefs.edit().putBoolean("installed_${lang.code}", true).apply()
-                if (lang.code == "th") downloadThaiModel()
-                else {
-                    status.text = "Modelos Bergamot de ${lang.name} instalados. Tradução local pronta."
-                    installButton.isEnabled = true
-                    updateInstallButton()
-                }
+                progressRing.progress = 100
+                progressLabel.text = "Instalação concluída · 100%"
+                status.text = "Idioma ${lang.name} instalado. A tradução local está pronta."
+                updateInstallButton()
             } catch (e: Exception) {
-                status.text = "Falha ao preparar os modelos: ${e.localizedMessage ?: "erro desconhecido"}"
-                installButton.isEnabled = true
+                status.text = "Não foi possível instalar ${lang.name}: ${e.localizedMessage ?: e.javaClass.simpleName}"
+                progressLabel.text = "Instalação interrompida · ${progressRing.progress}%"
             } finally {
                 try { withContext(NonCancellable + Dispatchers.IO) { engine?.shutdown() } } catch (_: Exception) { }
+                installButton.isEnabled = true
             }
         }
     }
 
-    private fun downloadThaiModel() {
-        status.text = "Baixando o reconhecedor de texto tailandês..."
-        Thread {
-            try {
-                val folder = java.io.File(filesDir, "tessdata").apply { mkdirs() }
-                val target = java.io.File(folder, "tha.traineddata")
-                val connection = java.net.URL("https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/tha.traineddata").openConnection() as java.net.HttpURLConnection
-                connection.connectTimeout = 20000
-                connection.readTimeout = 60000
-                connection.inputStream.use { input -> target.outputStream().use { input.copyTo(it) } }
-                connection.disconnect()
-                prefs.edit().putBoolean("thai_ocr_installed", true)
-                    .putBoolean("installed_th", true).apply()
-                runOnUiThread {
-                    status.text = "Pacote tailandês instalado no aparelho."
-                    installButton.isEnabled = true
-                    updateInstallButton()
-                }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    status.text = "Pacote de tradução baixado, mas o OCR tailandês falhou: ${e.localizedMessage}"
-                    installButton.isEnabled = true
-                }
+    private suspend fun downloadThaiModel(offset: Int, span: Int) {
+        withContext(Dispatchers.IO) {
+            val folder = java.io.File(filesDir, "tessdata").apply { mkdirs() }
+            val target = java.io.File(folder, "tha.traineddata")
+            val temp = java.io.File(folder, "tha.traineddata.part")
+            val connection = (java.net.URL("https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/tha.traineddata").openConnection() as java.net.HttpURLConnection).apply {
+                connectTimeout = 20000
+                readTimeout = 60000
+                instanceFollowRedirects = true
             }
-        }.start()
+            try {
+                connection.connect()
+                val total = connection.contentLengthLong
+                connection.inputStream.use { input ->
+                    temp.outputStream().use { output ->
+                        val buffer = ByteArray(16 * 1024)
+                        var copied = 0L
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            output.write(buffer, 0, count)
+                            copied += count
+                            val fraction = if (total > 0L) (copied.toDouble() / total).coerceIn(0.0, 1.0) else 0.0
+                            val percent = (offset + fraction * span).toInt().coerceIn(offset, offset + span)
+                            runOnUiThread {
+                                if (!isFinishing) {
+                                    progressRing.progress = percent
+                                    progressLabel.text = "Reconhecedor tailandês · $percent%"
+                                    status.text = "Baixando os dados de leitura tailandesa..."
+                                }
+                            }
+                        }
+                    }
+                }
+                if (!temp.renameTo(target)) throw java.io.IOException("Não foi possível finalizar o arquivo do idioma tailandês.")
+            } finally {
+                connection.disconnect()
+                if (temp.exists()) temp.delete()
+            }
+        }
+    }
+}
+
+private class CircularProgressView(context: android.content.Context) : View(context) {
+    private val track = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = 8f * resources.displayMetrics.density
+        color = android.graphics.Color.rgb(55, 45, 78)
+        strokeCap = android.graphics.Paint.Cap.ROUND
+    }
+    private val active = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = 8f * resources.displayMetrics.density
+        color = android.graphics.Color.rgb(57, 189, 248)
+        strokeCap = android.graphics.Paint.Cap.ROUND
+    }
+    private val label = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE
+        textAlign = android.graphics.Paint.Align.CENTER
+        textSize = 17f * resources.displayMetrics.scaledDensity
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
+    var progress: Int = 0
+        set(value) { field = value.coerceIn(0, 100); invalidate() }
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        super.onDraw(canvas)
+        val inset = track.strokeWidth
+        val rect = android.graphics.RectF(inset, inset, width - inset, height - inset)
+        canvas.drawArc(rect, -90f, 360f, false, track)
+        canvas.drawArc(rect, -90f, 360f * progress / 100f, false, active)
+        val y = height / 2f - (label.ascent() + label.descent()) / 2f
+        canvas.drawText("$progress%", width / 2f, y, label)
     }
 }
